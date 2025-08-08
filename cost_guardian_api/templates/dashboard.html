@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cost Guardian Dashboard</title>
+</head>
+<body>
+    <h1>Cost Guardian Token Usage</h1>
+    <button id="reset-btn">Reset Data</button>
+<p id="reset-status"></p>
+    <table border="1" id="usage-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Timestamp</th>
+                <th>Model</th>
+                <th>Prompt Tokens</th>
+                <th>Completion Tokens</th>
+                <th>Total Tokens</th>
+                <th>Estimated Cost (USD)</th>
+            </tr>
+        </thead>
+        <tbody>
+        </tbody>
+    </table>
+    <script>
+        function renderRows(rows) {
+            const tableBody = document.getElementById('usage-table').getElementsByTagName('tbody')[0];
+            tableBody.innerHTML = '';
+            if (Array.isArray(rows)) {
+                rows.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${row.id ?? ''}</td>
+                        <td>${row.timestamp ?? ''}</td>
+                        <td>${row.model ?? ''}</td>
+                        <td>${row.promptTokens ?? ''}</td>
+                        <td>${row.completionTokens ?? ''}</td>
+                        <td>${row.totalTokens ?? ''}</td>
+                        <td>${row.estimatedCostUSD ?? ''}</td>
+                    `;
+                    tableBody.appendChild(tr);
+                });
+            }
+        }
+
+        function fetchData() {
+            fetch('/data')
+                .then(response => response.json())
+                .then(payload => {
+                    // Support both shapes: { data: [...] } or [...]
+                    const rows = Array.isArray(payload) ? payload : payload?.data;
+                    renderRows(rows);
+                })
+                .catch(error => console.error('Error loading data:', error));
+        }
+
+        fetchData();
+
+        // Reset button logic
+        document.getElementById('reset-btn').addEventListener('click', () => {
+            fetch('/reset', { method: 'DELETE' })
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('reset-status').textContent = data.message || 'Reset complete.';
+                    fetchData(); // reload table after reset
+                })
+                .catch(error => {
+                    document.getElementById('reset-status').textContent = 'Reset failed.';
+                    console.error('Error resetting data:', error);
+                });
+        });
+    </script>
+</body>
+</html>
