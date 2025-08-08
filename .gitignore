@@ -1,0 +1,24 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.env/
+
+# Logs
+*.log
+
+# Databases
+*.sqlite
+*.db
+
+# OS metadata
+.DS_Store
+
+# Editor/IDE settings
+.vscode/
+.idea/
+
+# Node.js (if any scripts use it)
+node_modules/
