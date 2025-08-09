@@ -1,14 +1,60 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, g
 from flask_cors import CORS
-import sqlite3
-import traceback
-import logging
+import logging, uuid, time, sqlite3, traceback
 
 from config import DB_PATH, SERVER_PORT
 from db import migrate
 
 app = Flask(__name__)
 CORS(app)
+
+# --- Request tracing & JSON error middleware ---
+
+@app.before_request
+def _start_timer():
+    # Short request ID for log correlation
+    g.req_id = uuid.uuid4().hex[:8]
+    # High-resolution start time
+    g.t0 = time.perf_counter()
+
+@app.after_request
+def _log_request(resp):
+    # Duration in ms, even if g.t0 is missing for any reason
+    dt_ms = int((time.perf_counter() - g.get('t0', time.perf_counter())) * 1000)
+    logging.info("[%s] %s %s -> %s (%sms)",
+                 g.get('req_id', '-'), request.method, request.path, resp.status_code, dt_ms)
+
+    # Avoid caching JSON responses
+    if resp.content_type and "application/json" in resp.content_type:
+        resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+def json_error(status_code: int, message: str):
+    payload = {
+        "status": "error",
+        "message": message,
+        "requestId": g.get("req_id", None),
+    }
+    return jsonify(payload), status_code
+
+# Consistent JSON errors for common cases
+@app.errorhandler(400)
+def _400(e): return json_error(400, "Bad request")
+
+@app.errorhandler(401)
+def _401(e): return json_error(401, "Unauthorized")
+
+@app.errorhandler(403)
+def _403(e): return json_error(403, "Forbidden")
+
+@app.errorhandler(404)
+def _404(e): return json_error(404, "Not found")
+
+@app.errorhandler(405)
+def _405(e): return json_error(405, "Method not allowed")
+
+@app.errorhandler(500)
+def _500(e): return json_error(500, "Internal server error")
 
 @app.route('/ping')
 def ping():
