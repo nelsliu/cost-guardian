@@ -22,3 +22,6 @@ venv/
 
 # Node.js (if any scripts use it)
 node_modules/
+
+# Environment files
+.env
