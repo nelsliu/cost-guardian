@@ -18,9 +18,3 @@ pip install -r requirements.txt
 flask run
 
 Visit http://localhost:5000/dashboard to view usage logs.
-
-Then:  
-```bash
-git add README.md
-git commit -m "Add minimal README"
-git push origin main
