@@ -1,11 +1,9 @@
 # db.py
-import os
 import sqlite3
-
-DB_FILENAME = os.environ.get("DB_FILENAME", "cost_guardian.db")
+from config import DB_PATH
 
 def get_conn():
-    conn = sqlite3.connect(DB_FILENAME)
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -35,9 +33,9 @@ def insert_usage(row: dict):
         """, (
             row.get("timestamp"),
             row.get("model"),
-            int(row.get("promptTokens", 0)),
-            int(row.get("completionTokens", 0)),
-            int(row.get("totalTokens", 0)),
-            float(row.get("estimatedCostUSD", 0.0)),
+            int(row.get("promptTokens") or 0),
+            int(row.get("completionTokens") or 0),
+            int(row.get("totalTokens") or 0),
+            float(row.get("estimatedCostUSD") or 0.0),
         ))
         conn.commit()

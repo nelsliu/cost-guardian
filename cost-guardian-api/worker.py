@@ -4,7 +4,7 @@ import logging
 import requests
 from datetime import datetime, timezone
 
-from config import OPENAI_API_KEY, OPENAI_MODEL, PROBE_INTERVAL_SECS
+from config import OPENAI_API_KEY, OPENAI_MODEL, PROBE_INTERVAL_SECS, HEARTBEAT_PROMPT
 from db import migrate, insert_usage
 from calc import compute_cost
 
@@ -18,13 +18,30 @@ def probe_once():
     payload = {
         "model": OPENAI_MODEL,
         "messages": [
-            {"role": "user", "content": "Return a one-word heartbeat: 'ping'."}
+            {"role": "user", "content": f"Return a one-word heartbeat: '{HEARTBEAT_PROMPT}'."}
         ]
     }
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
 
-    r = requests.post(OPENAI_URL, headers=headers, json=payload, timeout=30)
-    r.raise_for_status()
+    start_time = time.perf_counter()
+    
+    # Retry logic for transient HTTP errors
+    for attempt in range(2):
+        try:
+            r = requests.post(OPENAI_URL, headers=headers, json=payload, timeout=30)
+            r.raise_for_status()
+            break
+        except requests.HTTPError as e:
+            if attempt == 0 and r.status_code in [429] or (500 <= r.status_code < 600):
+                logging.warning("HTTP error %s (attempt %d/2), retrying in 1s...", r.status_code, attempt + 1)
+                time.sleep(1)
+                continue
+            raise
+    
+    end_time = time.perf_counter()
+    response_time_ms = round((end_time - start_time) * 1000, 2)
+    logging.info("Response time: %sms", response_time_ms)
+    
     data = r.json()
 
     usage = data.get("usage", {}) or {}
