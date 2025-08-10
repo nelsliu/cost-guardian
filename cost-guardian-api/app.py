@@ -1,12 +1,31 @@
 from flask import Flask, request, jsonify, render_template, g
 from flask_cors import CORS
 import logging, uuid, time, sqlite3, traceback
+from functools import wraps
 
-from config import DB_PATH, SERVER_PORT
+from config import DB_PATH, SERVER_PORT, API_KEY, DASHBOARD_PUBLIC
 from db import migrate
 
 app = Flask(__name__)
 CORS(app)
+
+# --- Auth middleware ---
+
+def require_api_key(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Skip auth if no API key is configured
+        if not API_KEY:
+            logging.warning("API_KEY not configured - endpoint accessible without auth")
+            return f(*args, **kwargs)
+        
+        auth_header = request.headers.get('X-API-Key')
+        if not auth_header or auth_header != API_KEY:
+            logging.warning("[%s] Unauthorized access attempt to %s", g.get('req_id', '-'), request.path)
+            return json_error(401, "Unauthorized")
+        
+        return f(*args, **kwargs)
+    return decorated_function
 
 # --- Request tracing & JSON error middleware ---
 
@@ -61,6 +80,7 @@ def ping():
     return jsonify({"message": "pong"})
 
 @app.route('/data', methods=['GET'])
+@require_api_key
 def get_data():
     try:
         logging.info("Connecting to DB...")
@@ -80,6 +100,7 @@ def get_data():
         return jsonify({"error": traceback.format_exc()}), 500
 
 @app.route('/log', methods=['POST'])
+@require_api_key
 def log_data():
     try:
         data = request.json
@@ -103,6 +124,7 @@ def log_data():
         return jsonify({"error": traceback.format_exc()}), 500
 
 @app.route('/reset', methods=['DELETE'])
+@require_api_key
 def reset_db():
     try:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -116,6 +138,16 @@ def reset_db():
 
 @app.route('/dashboard')
 def dashboard():
+    # Apply auth if dashboard is not public
+    if not DASHBOARD_PUBLIC:
+        if not API_KEY:
+            logging.warning("API_KEY not configured - dashboard accessible without auth")
+        else:
+            auth_header = request.headers.get('X-API-Key')
+            if not auth_header or auth_header != API_KEY:
+                logging.warning("[%s] Unauthorized access attempt to %s", g.get('req_id', '-'), request.path)
+                return json_error(401, "Unauthorized")
+    
     return render_template('dashboard.html')
 
 

@@ -10,5 +10,9 @@ DB_FILENAME = os.getenv("DB_FILENAME", "cost_guardian.db")
 SERVER_PORT = int(os.getenv("SERVER_PORT", "5001"))
 HEARTBEAT_PROMPT = os.getenv("HEARTBEAT_PROMPT", "ping")
 
+# Auth config
+API_KEY = os.getenv("API_KEY", "")
+DASHBOARD_PUBLIC = os.getenv("DASHBOARD_PUBLIC", "true").lower() == "true"
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, DB_FILENAME)
