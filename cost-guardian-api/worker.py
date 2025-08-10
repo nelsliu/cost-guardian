@@ -1,7 +1,7 @@
 import argparse
 import time
 import logging
-import requests
+import requests # pyright: ignore[reportMissingModuleSource]
 from datetime import datetime, timezone
 
 from config import OPENAI_API_KEY, OPENAI_MODEL, PROBE_INTERVAL_SECS, HEARTBEAT_PROMPT

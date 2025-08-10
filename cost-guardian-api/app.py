@@ -3,11 +3,20 @@ from flask_cors import CORS
 import logging, uuid, time, sqlite3, traceback
 from functools import wraps
 
-from config import DB_PATH, SERVER_PORT, API_KEY, DASHBOARD_PUBLIC
+from config import DB_PATH, SERVER_PORT, API_KEY, DASHBOARD_PUBLIC, ENV, DEBUG, ALLOWED_ORIGINS
 from db import migrate
 
 app = Flask(__name__)
-CORS(app)
+
+# CORS setup
+if ALLOWED_ORIGINS:
+    CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}},
+         supports_credentials=False,
+         methods=["GET","POST","DELETE","OPTIONS"],
+         allow_headers=["Content-Type","X-API-Key"])
+else:
+    CORS(app)
+    logging.warning("ALLOWED_ORIGINS not set—CORS is wide open (dev mode)")
 
 # --- Auth middleware ---
 
@@ -75,6 +84,21 @@ def _405(e): return json_error(405, "Method not allowed")
 @app.errorhandler(500)
 def _500(e): return json_error(500, "Internal server error")
 
+# Global exception handler for consistent production error responses
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # Pass through HTTP errors to their specific handlers
+    if hasattr(e, 'code'):
+        return e
+    
+    if DEBUG:
+        # In development, let Flask handle the exception normally (shows traceback)
+        raise e
+    else:
+        # In production, log the full traceback but return clean JSON
+        logging.exception("[%s] Unhandled exception", g.get('req_id', '-'))
+        return json_error(500, "Internal server error")
+
 @app.route('/ping')
 def ping():
     return jsonify({"message": "pong"})
@@ -96,8 +120,11 @@ def get_data():
         logging.info("Returning data...")
         return jsonify({"data": data_list})
     except Exception:
-        logging.exception("Error occurred in /data route")
-        return jsonify({"error": traceback.format_exc()}), 500
+        logging.exception("[%s] Error occurred in /data route", g.get('req_id', '-'))
+        if DEBUG:
+            return jsonify({"error": traceback.format_exc()}), 500
+        else:
+            return json_error(500, "Internal server error")
 
 @app.route('/log', methods=['POST'])
 @require_api_key
@@ -121,7 +148,11 @@ def log_data():
         conn.close()
         return jsonify({"message": "Data logged successfully"})
     except Exception:
-        return jsonify({"error": traceback.format_exc()}), 500
+        logging.exception("[%s] Error occurred in /log route", g.get('req_id', '-'))
+        if DEBUG:
+            return jsonify({"error": traceback.format_exc()}), 500
+        else:
+            return json_error(500, "Internal server error")
 
 @app.route('/reset', methods=['DELETE'])
 @require_api_key
@@ -134,7 +165,11 @@ def reset_db():
         conn.close()
         return jsonify({"message": "Database reset successfully"})
     except Exception:
-        return jsonify({"error": traceback.format_exc()}), 500
+        logging.exception("[%s] Error occurred in /reset route", g.get('req_id', '-'))
+        if DEBUG:
+            return jsonify({"error": traceback.format_exc()}), 500
+        else:
+            return json_error(500, "Internal server error")
 
 @app.route('/dashboard')
 def dashboard():
@@ -154,7 +189,14 @@ def dashboard():
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
     
+    # Startup configuration logging
+    origins_count = len(ALLOWED_ORIGINS) if ALLOWED_ORIGINS else 0
+    logging.info("Starting Cost Guardian API | ENV=%s | DEBUG=%s | ALLOWED_ORIGINS=%d origins | PORT=%d", 
+                 ENV, DEBUG, origins_count, SERVER_PORT)
+    if ALLOWED_ORIGINS:
+        logging.info("Allowed origins: %s", ", ".join(ALLOWED_ORIGINS))
+    
     # Ensure database table exists
     migrate()
     
-    app.run(debug=True, port=SERVER_PORT)
+    app.run(debug=DEBUG, port=SERVER_PORT)
