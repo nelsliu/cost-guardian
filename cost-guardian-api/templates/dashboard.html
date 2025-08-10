@@ -1,12 +1,180 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <title>Cost Guardian Dashboard</title>
+    <style>
+        /* Auth modal styles */
+        .auth-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .auth-modal {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 400px;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        .auth-modal h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .auth-modal input[type="password"] {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+        .auth-modal input[type="password"]:focus {
+            outline: none;
+            border-color: #007cba;
+            box-shadow: 0 0 0 3px rgba(0, 124, 186, 0.1);
+        }
+        .auth-modal label {
+            display: block;
+            margin: 1rem 0 0.5rem;
+            color: #555;
+        }
+        .auth-modal .checkbox-row {
+            display: flex;
+            align-items: center;
+            margin: 1rem 0;
+        }
+        .auth-modal .checkbox-row input {
+            margin-right: 0.5rem;
+        }
+        .auth-modal .buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+            margin-top: 1.5rem;
+        }
+        .auth-modal button {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        .auth-modal .btn-primary {
+            background: #007cba;
+            color: white;
+        }
+        .auth-modal .btn-primary:hover {
+            background: #005a87;
+        }
+        .auth-modal .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .auth-modal .btn-secondary {
+            background: #f5f5f5;
+            color: #333;
+        }
+        .auth-modal .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+        .auth-error {
+            color: #d32f2f;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+        .hidden {
+            display: none !important;
+        }
+        /* Auth status footer */
+        .auth-status {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: #f9f9f9;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+        .auth-status .key-display {
+            font-family: monospace;
+            color: #333;
+        }
+        .auth-status .sign-out {
+            color: #007cba;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .auth-status .sign-out:hover {
+            color: #005a87;
+        }
+        /* Loading and disabled states */
+        .loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+        .status-message {
+            margin: 1rem 0;
+            padding: 0.75rem;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status-info {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .status-error {
+            background: #ffebee;
+            color: #d32f2f;
+        }
+    </style>
 </head>
 <body>
+    <!-- Auth Modal -->
+    <div id="auth-overlay" class="auth-overlay hidden">
+        <div class="auth-modal">
+            <h2>🔑 API Authentication</h2>
+            <form id="auth-form">
+                <label for="api-key-input">API Key</label>
+                <input 
+                    type="password" 
+                    id="api-key-input" 
+                    placeholder="Enter your API key..."
+                    required
+                    autocomplete="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                >
+                <div class="checkbox-row">
+                    <input type="checkbox" id="remember-key">
+                    <label for="remember-key">Remember on this device</label>
+                </div>
+                <div id="auth-error" class="auth-error hidden"></div>
+                <div class="buttons">
+                    <button type="button" id="cancel-btn" class="btn-secondary">Cancel</button>
+                    <button type="submit" id="signin-btn" class="btn-primary">Sign In</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <h1>Cost Guardian Token Usage</h1>
-    <button id="reset-btn">Reset Data</button>
-<p id="reset-status"></p>
+    
+    <!-- Loading/Status messages -->
+    <div id="status-message" class="hidden"></div>
+    
+    <button id="reset-btn" disabled>Reset Data</button>
+    <p id="reset-status"></p>
+    
     <table border="1" id="usage-table">
         <thead>
             <tr>
@@ -22,7 +190,159 @@
         <tbody>
         </tbody>
     </table>
+
+    <!-- Auth Status Footer -->
+    <div id="auth-status" class="auth-status hidden">
+        <span>🔓 Signed in as: <span id="key-display" class="key-display"></span></span>
+        <span class="sign-out" id="sign-out-btn">Sign out</span>
+    </div>
+
     <script>
+        // Global state
+        let authInProgress = false;
+        let abortController = null;
+        const API_KEY_STORAGE = 'cg_api_key';
+
+        // Storage helpers
+        function getApiKey() {
+            // Prefer sessionStorage over localStorage
+            return sessionStorage.getItem(API_KEY_STORAGE) || 
+                   localStorage.getItem(API_KEY_STORAGE) || '';
+        }
+
+        function setApiKey(key, remember = false) {
+            if (remember) {
+                localStorage.setItem(API_KEY_STORAGE, key);
+                sessionStorage.removeItem(API_KEY_STORAGE);
+            } else {
+                sessionStorage.setItem(API_KEY_STORAGE, key);
+                localStorage.removeItem(API_KEY_STORAGE);
+            }
+        }
+
+        function clearApiKey() {
+            sessionStorage.removeItem(API_KEY_STORAGE);
+            localStorage.removeItem(API_KEY_STORAGE);
+        }
+
+        // UI helpers
+        function showStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status-message');
+            statusEl.textContent = message;
+            statusEl.className = `status-message status-${type}`;
+        }
+
+        function hideStatus() {
+            const statusEl = document.getElementById('status-message');
+            statusEl.className = 'status-message hidden';
+        }
+
+        function updateAuthStatus(key) {
+            const statusEl = document.getElementById('auth-status');
+            const keyDisplayEl = document.getElementById('key-display');
+            
+            if (key) {
+                // Show masked key (last 4 chars)
+                const masked = '•'.repeat(Math.max(0, key.length - 4)) + key.slice(-4);
+                keyDisplayEl.textContent = masked;
+                statusEl.classList.remove('hidden');
+            } else {
+                statusEl.classList.add('hidden');
+            }
+        }
+
+        function showLogin(errorMessage = '') {
+            if (authInProgress) return;
+            
+            const overlay = document.getElementById('auth-overlay');
+            const errorEl = document.getElementById('auth-error');
+            const inputEl = document.getElementById('api-key-input');
+            
+            if (errorMessage) {
+                errorEl.textContent = errorMessage;
+                errorEl.classList.remove('hidden');
+            } else {
+                errorEl.classList.add('hidden');
+            }
+            
+            overlay.classList.remove('hidden');
+            setTimeout(() => inputEl.focus(), 100);
+        }
+
+        function hideLogin() {
+            const overlay = document.getElementById('auth-overlay');
+            const errorEl = document.getElementById('auth-error');
+            overlay.classList.add('hidden');
+            errorEl.classList.add('hidden');
+        }
+
+        // Enhanced fetch wrapper
+        async function apiFetch(path, opts = {}) {
+            const headers = new Headers(opts.headers || {});
+            const key = getApiKey();
+            
+            if (key) {
+                headers.set('X-API-Key', key);
+            }
+
+            // Create & expose controller so Sign out can cancel
+            const controller = opts.signal ? null : new AbortController();
+            const signal = opts.signal || controller.signal;
+            if (controller) abortController = controller;
+
+            try {
+                const response = await fetch(path, { 
+                    ...opts, 
+                    headers, 
+                    signal 
+                });
+
+                // Handle 401 Unauthorized
+                if (response.status === 401) {
+                    if (!authInProgress) {
+                        clearApiKey();
+                        updateAuthStatus('');
+                        showLogin('Unauthorized. Please enter your API key.');
+                        authInProgress = true;
+                    }
+                    throw new Error('Unauthorized');
+                }
+
+                // Handle 429 Rate Limited
+                if (response.status === 429) {
+                    showStatus('Rate limited. Retrying in 2 seconds...', 'info');
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    
+                    // Retry once
+                    const retryResponse = await fetch(path, { 
+                        ...opts, 
+                        headers, 
+                        signal 
+                    });
+                    
+                    if (retryResponse.status === 429) {
+                        showStatus('Rate limit exceeded. Please try again later.', 'error');
+                        throw new Error('Rate limited');
+                    }
+                    
+                    hideStatus();
+                    return retryResponse;
+                }
+
+                hideStatus();
+                return response;
+            } catch (error) {
+                if (error.name !== 'AbortError' && error.message !== 'Unauthorized' && error.message !== 'Rate limited') {
+                    showStatus(`Network error: ${error.message}`, 'error');
+                }
+                throw error;
+            } finally {
+                // Clear reference so we don't accidentally abort later requests
+                if (controller && abortController === controller) abortController = null;
+            }
+        }
+
+        // Table rendering (unchanged)
         function renderRows(rows) {
             const tableBody = document.getElementById('usage-table').getElementsByTagName('tbody')[0];
             tableBody.innerHTML = '';
@@ -43,32 +363,176 @@
             }
         }
 
-        function fetchData() {
-            fetch('/data')
-                .then(response => response.json())
-                .then(payload => {
-                    // Support both shapes: { data: [...] } or [...]
-                    const rows = Array.isArray(payload) ? payload : payload?.data;
-                    renderRows(rows);
-                })
-                .catch(error => console.error('Error loading data:', error));
+        // Data fetching with auth
+        async function fetchData() {
+            try {
+                const response = await apiFetch('/data');
+                const payload = await response.json();
+                
+                // Support both shapes: { data: [...] } or [...]
+                const rows = Array.isArray(payload) ? payload : payload?.data;
+                renderRows(rows);
+                
+                // Enable reset button after successful data load
+                document.getElementById('reset-btn').disabled = false;
+                
+            } catch (error) {
+                console.error('Error loading data:', error);
+                if (error.message !== 'Unauthorized') {
+                    document.getElementById('reset-btn').disabled = true;
+                }
+            }
         }
 
-        fetchData();
-
-        // Reset button logic
-        document.getElementById('reset-btn').addEventListener('click', () => {
-            fetch('/reset', { method: 'DELETE' })
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('reset-status').textContent = data.message || 'Reset complete.';
-                    fetchData(); // reload table after reset
-                })
-                .catch(error => {
-                    document.getElementById('reset-status').textContent = 'Reset failed.';
-                    console.error('Error resetting data:', error);
-                });
+        // Auth form handling
+        document.getElementById('auth-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById('signin-btn');
+            const apiKeyInput = document.getElementById('api-key-input');
+            const rememberCheckbox = document.getElementById('remember-key');
+            const errorEl = document.getElementById('auth-error');
+            
+            const apiKey = apiKeyInput.value.trim();
+            if (!apiKey) {
+                errorEl.textContent = 'API key is required';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            
+            // Set loading state
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Signing in...';
+            errorEl.classList.add('hidden');
+            
+            try {
+                // Store key temporarily for test
+                setApiKey(apiKey, rememberCheckbox.checked);
+                
+                // Test the key by fetching data
+                await fetchData();
+                
+                // Success - hide modal and update UI
+                hideLogin();
+                updateAuthStatus(apiKey);
+                authInProgress = false;
+                
+            } catch (error) {
+                // Auth failed - clear key and show error
+                clearApiKey();
+                if (error.message === 'Unauthorized') {
+                    errorEl.textContent = 'Invalid API key. Please check and try again.';
+                } else {
+                    errorEl.textContent = 'Authentication failed. Please try again.';
+                }
+                errorEl.classList.remove('hidden');
+            } finally {
+                // Reset button state
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Sign In';
+            }
         });
+
+        // Cancel/close modal
+        document.getElementById('cancel-btn').addEventListener('click', () => {
+            // Only allow cancel if dashboard is public (no immediate auth required)
+            hideLogin();
+            authInProgress = false;
+        });
+
+        // Sign out
+        document.getElementById('sign-out-btn').addEventListener('click', () => {
+            // Abort any in-flight requests
+            if (abortController) {
+                abortController.abort();
+                abortController = null;
+            }
+            
+            clearApiKey();
+            updateAuthStatus('');
+            document.getElementById('reset-btn').disabled = true;
+            
+            // Clear table
+            renderRows([]);
+            
+            showLogin();
+        });
+
+        // Reset button with auth
+        document.getElementById('reset-btn').addEventListener('click', async () => {
+            if (!getApiKey()) {
+                showLogin('Please sign in to reset data.');
+                return;
+            }
+            
+            const resetBtn = document.getElementById('reset-btn');
+            const resetStatus = document.getElementById('reset-status');
+            
+            resetBtn.disabled = true;
+            resetBtn.textContent = 'Resetting...';
+            resetStatus.textContent = '';
+            
+            try {
+                const response = await apiFetch('/reset', { method: 'DELETE' });
+                const data = await response.json();
+                resetStatus.textContent = data.message || 'Reset complete.';
+                
+                // Reload table after successful reset
+                await fetchData();
+                
+            } catch (error) {
+                resetStatus.textContent = 'Reset failed.';
+                console.error('Error resetting data:', error);
+            } finally {
+                resetBtn.disabled = false;
+                resetBtn.textContent = 'Reset Data';
+            }
+        });
+
+        // Keyboard accessibility
+        document.addEventListener('keydown', (e) => {
+            const overlay = document.getElementById('auth-overlay');
+            const isModalVisible = !overlay.classList.contains('hidden');
+            
+            if (e.key === 'Escape' && isModalVisible) {
+                // Only close on escape if we don't require immediate auth
+                const hasKey = getApiKey();
+                if (hasKey || !authInProgress) {
+                    hideLogin();
+                    authInProgress = false;
+                }
+            }
+        });
+
+        // Initialize on page load
+        async function initialize() {
+            const existingKey = getApiKey();
+            
+            if (existingKey) {
+                // Try to authenticate with existing key
+                updateAuthStatus(existingKey);
+                try {
+                    await fetchData();
+                } catch (error) {
+                    // Existing key invalid, clear it
+                    clearApiKey();
+                    updateAuthStatus('');
+                    showLogin('Your session has expired. Please sign in again.');
+                }
+            } else {
+                // No key - try fetching data to see if auth is required
+                try {
+                    await fetchData();
+                } catch (error) {
+                    if (error.message === 'Unauthorized') {
+                        showLogin();
+                    }
+                }
+            }
+        }
+
+        // Start the app
+        initialize();
     </script>
 </body>
 </html>
