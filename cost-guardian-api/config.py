@@ -14,6 +14,12 @@ HEARTBEAT_PROMPT = os.getenv("HEARTBEAT_PROMPT", "ping")
 API_KEY = os.getenv("API_KEY", "")
 DASHBOARD_PUBLIC = os.getenv("DASHBOARD_PUBLIC", "true").lower() == "true"
 
+# Encryption config
+MASTER_KEY = os.getenv("MASTER_KEY", "")
+
+# Provider config
+PROVIDER = os.getenv("PROVIDER", "openai")
+
 # Environment and CORS config
 ENV = os.getenv("ENV", "development").lower()
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]

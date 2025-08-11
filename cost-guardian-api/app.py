@@ -3,8 +3,10 @@ from flask_cors import CORS
 import logging, uuid, time, sqlite3, traceback
 from functools import wraps
 
-from config import DB_PATH, SERVER_PORT, API_KEY, DASHBOARD_PUBLIC, ENV, DEBUG, ALLOWED_ORIGINS
-from db import migrate
+from config import DB_PATH, SERVER_PORT, API_KEY, DASHBOARD_PUBLIC, ENV, DEBUG, ALLOWED_ORIGINS, MASTER_KEY
+from db import migrate, add_api_key, list_api_keys, set_api_key_active, delete_api_key
+from crypto import encrypt_key, decrypt_key
+from worker import probe_single_key
 
 app = Flask(__name__)
 
@@ -171,6 +173,194 @@ def reset_db():
         else:
             return json_error(500, "Internal server error")
 
+def mask_api_key(key: str) -> str:
+    """Create a masked version of an API key showing only the last 4 characters."""
+    if len(key) <= 4:
+        return '••••'
+    return '•' * (len(key) - 4) + key[-4:]
+
+@app.route('/keys', methods=['GET'])
+@require_api_key
+def get_keys():
+    """List all API keys with masked values and metadata."""
+    try:
+        # Fetch all keys with their enc_key once
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, label, provider, active, last_ok, created_at, enc_key
+                FROM api_keys
+                ORDER BY created_at DESC
+            """)
+            rows = cur.fetchall()
+
+        keys = []
+        for row in rows:
+            item = {
+                "id": row["id"],
+                "label": row["label"],
+                "provider": row["provider"],
+                "active": row["active"],
+                "last_ok": row["last_ok"],
+                "created_at": row["created_at"],
+            }
+            try:
+                decrypted = decrypt_key(row["enc_key"])
+                item["mask"] = mask_api_key(decrypted)
+            except Exception as e:
+                logging.warning("[%s] Failed to decrypt key %s for masking: %s",
+                                g.get('req_id', '-'), row["id"], e)
+                item["mask"] = "••••"
+            keys.append(item)
+
+        return jsonify({"keys": keys})
+    except Exception:
+        logging.exception("[%s] Error occurred in /keys route", g.get('req_id', '-'))
+        if DEBUG:
+            return jsonify({"error": traceback.format_exc()}), 500
+        else:
+            return json_error(500, "Internal server error")
+
+@app.route('/keys', methods=['POST'])
+@require_api_key
+def add_key():
+    """Add a new API key with encryption."""
+    try:
+        if not MASTER_KEY:
+            if ENV == "production":
+                logging.error("[%s] MASTER_KEY not configured in production environment", g.get('req_id', '-'))
+                return json_error(500, "Encryption key not configured - cannot store API keys securely")
+            else:
+                logging.warning("[%s] MASTER_KEY not configured", g.get('req_id', '-'))
+                return json_error(500, "Encryption not configured")
+        
+        data = request.json
+        if not data:
+            return json_error(400, "JSON body required")
+        
+        label = data.get('label', '').strip()
+        key = data.get('key', '').strip()
+        provider = data.get('provider', 'openai').strip()
+        
+        # Validation
+        if not label or len(label) > 64:
+            return json_error(400, "Label must be 1-64 characters")
+        
+        if not key or len(key) > 256:
+            return json_error(400, "Key must be 1-256 characters")
+        
+        if provider not in ['openai']:
+            return json_error(400, "Provider must be 'openai'")
+        
+        # Encrypt the key
+        enc_key = encrypt_key(key)
+        
+        # Store in database
+        try:
+            key_id = add_api_key(label, provider, enc_key)
+        except sqlite3.IntegrityError as e:
+            if "UNIQUE constraint failed: api_keys.label" in str(e):
+                return json_error(400, f"Label '{label}' already exists")
+            raise
+        
+        logging.info("[%s] Added new API key with ID %s", g.get('req_id', '-'), key_id)
+        return jsonify({"id": key_id}), 201
+        
+    except ValueError as e:
+        logging.warning("[%s] Validation error: %s", g.get('req_id', '-'), e)
+        return json_error(500, "Encryption not configured")
+    except Exception:
+        logging.exception("[%s] Error occurred in POST /keys route", g.get('req_id', '-'))
+        if DEBUG:
+            return jsonify({"error": traceback.format_exc()}), 500
+        else:
+            return json_error(500, "Internal server error")
+
+@app.route('/keys/<int:key_id>/active', methods=['PATCH'])
+@require_api_key
+def toggle_key_active(key_id):
+    """Toggle the active status of an API key."""
+    try:
+        data = request.json
+        if not data or 'active' not in data:
+            return json_error(400, "JSON body with 'active' field required")
+        
+        active = bool(data['active'])
+        set_api_key_active(key_id, active)
+        
+        logging.info("[%s] Set key %s active status to %s", g.get('req_id', '-'), key_id, active)
+        return jsonify({"ok": True})
+        
+    except Exception:
+        logging.exception("[%s] Error occurred in PATCH /keys/%s/active route", g.get('req_id', '-'), key_id)
+        if DEBUG:
+            return jsonify({"error": traceback.format_exc()}), 500
+        else:
+            return json_error(500, "Internal server error")
+
+@app.route('/keys/<int:key_id>', methods=['DELETE'])
+@require_api_key
+def remove_key(key_id):
+    """Delete an API key."""
+    try:
+        delete_api_key(key_id)
+        logging.info("[%s] Deleted key %s", g.get('req_id', '-'), key_id)
+        return jsonify({"ok": True})
+        
+    except Exception:
+        logging.exception("[%s] Error occurred in DELETE /keys/%s route", g.get('req_id', '-'), key_id)
+        if DEBUG:
+            return jsonify({"error": traceback.format_exc()}), 500
+        else:
+            return json_error(500, "Internal server error")
+
+@app.route('/keys/<int:key_id>/probe', methods=['POST'])
+@require_api_key
+def probe_key_now(key_id):
+    """Immediately probe a specific API key to test its validity."""
+    try:
+        if not MASTER_KEY:
+            logging.warning("[%s] MASTER_KEY not configured - cannot probe key %s", g.get('req_id', '-'), key_id)
+            return json_error(500, "Encryption not configured")
+        
+        # Get the specific key
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, label, provider, enc_key, active FROM api_keys WHERE id = ?", (key_id,))
+            row = cursor.fetchone()
+        
+        if not row:
+            return json_error(404, "API key not found")
+        
+        # Decrypt and probe the key
+        try:
+            decrypted_key = decrypt_key(row['enc_key'])
+            result = probe_single_key(decrypted_key, row['id'], row['label'])
+            
+            return jsonify({
+                "success": True,
+                "message": f"Key '{row['label']}' tested successfully",
+                "usage": result
+            })
+            
+        except Exception as e:
+            logging.warning("[%s] Probe failed for key %s (%s): %s", 
+                          g.get('req_id', '-'), key_id, row['label'], str(e))
+            return jsonify({
+                "success": False,
+                "message": f"Key '{row['label']}' test failed: {str(e)}",
+                "error": str(e)
+            }), 400
+            
+    except Exception:
+        logging.exception("[%s] Error occurred in POST /keys/%s/probe route", g.get('req_id', '-'), key_id)
+        if DEBUG:
+            return jsonify({"error": traceback.format_exc()}), 500
+        else:
+            return json_error(500, "Internal server error")
+
 @app.route('/dashboard')
 def dashboard():
     # Apply auth if dashboard is not public
@@ -195,6 +385,10 @@ if __name__ == '__main__':
                  ENV, DEBUG, origins_count, SERVER_PORT)
     if ALLOWED_ORIGINS:
         logging.info("Allowed origins: %s", ", ".join(ALLOWED_ORIGINS))
+    
+    # Warn if MASTER_KEY is not configured
+    if not MASTER_KEY:
+        logging.warning("MASTER_KEY not configured - API key encryption/decryption will fail")
     
     # Ensure database table exists
     migrate()

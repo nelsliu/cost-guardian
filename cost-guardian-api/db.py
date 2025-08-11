@@ -10,6 +10,8 @@ def get_conn():
 def migrate():
     with get_conn() as conn:
         c = conn.cursor()
+        
+        # Create usage_log table
         c.execute("""
             CREATE TABLE IF NOT EXISTS usage_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,15 +23,43 @@ def migrate():
                 estimatedCostUSD REAL
             );
         """)
+        
+        # Create api_keys table
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                label TEXT NOT NULL,
+                provider TEXT NOT NULL DEFAULT 'openai',
+                enc_key BLOB NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
+                last_ok TEXT NULL,
+                created_at TEXT NOT NULL DEFAULT (DATETIME('now'))
+            );
+        """)
+        
+        # Add api_key_id column to usage_log if it doesn't exist
+        try:
+            c.execute("ALTER TABLE usage_log ADD COLUMN api_key_id INTEGER NULL")
+        except Exception:
+            # Column already exists, ignore
+            pass
+        
+        # Create indexes for performance
+        c.execute("CREATE INDEX IF NOT EXISTS idx_usage_key_ts ON usage_log(api_key_id, timestamp)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_keys_active ON api_keys(active)")
+        
+        # Create unique constraint for labels to prevent duplicates
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_api_keys_label ON api_keys(label)")
+        
         conn.commit()
 
-def insert_usage(row: dict):
+def insert_usage(row: dict, api_key_id: int = None):
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("""
             INSERT INTO usage_log (
-                timestamp, model, promptTokens, completionTokens, totalTokens, estimatedCostUSD
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                timestamp, model, promptTokens, completionTokens, totalTokens, estimatedCostUSD, api_key_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
             row.get("timestamp"),
             row.get("model"),
@@ -37,5 +67,103 @@ def insert_usage(row: dict):
             int(row.get("completionTokens") or 0),
             int(row.get("totalTokens") or 0),
             float(row.get("estimatedCostUSD") or 0.0),
+            api_key_id,
         ))
+        conn.commit()
+
+def add_api_key(label: str, provider: str, enc_key: bytes) -> int:
+    """Add a new encrypted API key to the database.
+    
+    Args:
+        label: User-friendly label for the key
+        provider: The AI provider (e.g., 'openai')
+        enc_key: The encrypted API key as bytes
+        
+    Returns:
+        int: The ID of the newly created key
+    """
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO api_keys (label, provider, enc_key)
+            VALUES (?, ?, ?)
+        """, (label, provider, enc_key))
+        conn.commit()
+        return c.lastrowid
+
+def list_api_keys() -> list:
+    """List all API keys with metadata (excluding the encrypted key).
+    
+    Returns:
+        list: List of dictionaries containing key metadata
+    """
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT id, label, provider, active, last_ok, created_at
+            FROM api_keys
+            ORDER BY created_at DESC
+        """)
+        return [dict(row) for row in c.fetchall()]
+
+def list_active_keys(include_secret: bool = False) -> list:
+    """List active API keys, optionally including encrypted keys for worker use.
+    
+    Args:
+        include_secret: If True, include enc_key in results (for worker)
+        
+    Returns:
+        list: List of dictionaries containing key data
+    """
+    with get_conn() as conn:
+        c = conn.cursor()
+        if include_secret:
+            c.execute("""
+                SELECT id, label, provider, enc_key, last_ok, created_at
+                FROM api_keys
+                WHERE active = 1
+                ORDER BY created_at DESC
+            """)
+        else:
+            c.execute("""
+                SELECT id, label, provider, active, last_ok, created_at
+                FROM api_keys
+                WHERE active = 1
+                ORDER BY created_at DESC
+            """)
+        return [dict(row) for row in c.fetchall()]
+
+def set_api_key_active(key_id: int, active: bool) -> None:
+    """Set the active status of an API key.
+    
+    Args:
+        key_id: The ID of the key to update
+        active: True to activate, False to deactivate
+    """
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE api_keys SET active = ? WHERE id = ?", (1 if active else 0, key_id))
+        conn.commit()
+
+def delete_api_key(key_id: int) -> None:
+    """Delete an API key from the database.
+    
+    Args:
+        key_id: The ID of the key to delete
+    """
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM api_keys WHERE id = ?", (key_id,))
+        conn.commit()
+
+def update_key_last_ok(key_id: int, timestamp: str) -> None:
+    """Update the last successful probe timestamp for an API key.
+    
+    Args:
+        key_id: The ID of the key to update
+        timestamp: ISO timestamp of the successful probe
+    """
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE api_keys SET last_ok = ? WHERE id = ?", (timestamp, key_id))
         conn.commit()
