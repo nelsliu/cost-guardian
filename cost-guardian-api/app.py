@@ -3,10 +3,12 @@ from flask_cors import CORS
 import logging, uuid, time, sqlite3, traceback
 from functools import wraps
 
-from config import DB_PATH, SERVER_PORT, API_KEY, DASHBOARD_PUBLIC, ENV, DEBUG, ALLOWED_ORIGINS, MASTER_KEY
+from config import DB_PATH, SERVER_PORT, API_KEY, DASHBOARD_PUBLIC, ENV, DEBUG, ALLOWED_ORIGINS, MASTER_KEY, RATE_LIMIT_RPM, RATE_LIMIT_BURST, RATE_LIMIT_EXEMPT
 from db import migrate, add_api_key, list_api_keys, set_api_key_active, delete_api_key
 from crypto import encrypt_key, decrypt_key
 from worker import probe_single_key
+from rate_limit import init_limit, check_rate_limit, is_exempt_path
+from metrics import increment_rate_limit_hits
 
 app = Flask(__name__)
 
@@ -40,6 +42,7 @@ def require_api_key(f):
 
 # --- Request tracing & JSON error middleware ---
 
+
 @app.before_request
 def _start_timer():
     # Short request ID for log correlation
@@ -47,12 +50,53 @@ def _start_timer():
     # High-resolution start time
     g.t0 = time.perf_counter()
 
+@app.before_request
+def _check_rate_limit():
+    # Skip rate limiting for exempt paths and methods
+    if is_exempt_path(request.path, request.method):
+        return None
+    
+    # Determine the rate limiting key
+    if API_KEY:
+        # Auth enabled - use API key from header
+        limiter_key = request.headers.get("X-API-Key", "anonymous")
+    else:
+        # Dev/no-auth mode - use IP address
+        limiter_key = request.remote_addr or "unknown"
+    
+    # Check rate limit
+    allowed, retry_after, remaining = check_rate_limit(limiter_key)
+    
+    if not allowed:
+        # Rate limited - increment metrics and log
+        increment_rate_limit_hits()
+        
+        display_key = limiter_key
+        if API_KEY and limiter_key != "anonymous":
+            display_key = mask_api_key(limiter_key)
+        
+        logging.warning("[%s] Rate limit exceeded for key %s (%s %s)", 
+                       g.get('req_id', '-'), display_key, request.method, request.path)
+        
+        resp = json_error(429, "Rate limit exceeded")
+        resp[0].headers["Retry-After"] = str(retry_after)
+        return resp
+    
+    # Store remaining tokens for response headers
+    g.rate_limit_remaining = remaining
+
 @app.after_request
 def _log_request(resp):
     # Duration in ms, even if g.t0 is missing for any reason
     dt_ms = int((time.perf_counter() - g.get('t0', time.perf_counter())) * 1000)
     logging.info("[%s] %s %s -> %s (%sms)",
                  g.get('req_id', '-'), request.method, request.path, resp.status_code, dt_ms)
+
+    # Add rate limit headers for successful requests
+    if resp.status_code < 400 and not is_exempt_path(request.path, request.method):
+        resp.headers["X-RateLimit-Limit"] = str(RATE_LIMIT_RPM)
+        if hasattr(g, 'rate_limit_remaining'):
+            resp.headers["X-RateLimit-Remaining"] = str(int(g.rate_limit_remaining))
 
     # Avoid caching JSON responses
     if resp.content_type and "application/json" in resp.content_type:
@@ -104,6 +148,10 @@ def handle_exception(e):
 @app.route('/ping')
 def ping():
     return jsonify({"message": "pong"})
+
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy", "timestamp": time.time()})
 
 @app.route('/data', methods=['GET'])
 @require_api_key
@@ -385,6 +433,11 @@ if __name__ == '__main__':
                  ENV, DEBUG, origins_count, SERVER_PORT)
     if ALLOWED_ORIGINS:
         logging.info("Allowed origins: %s", ", ".join(ALLOWED_ORIGINS))
+    
+    # Initialize rate limiting
+    init_limit(RATE_LIMIT_RPM, RATE_LIMIT_BURST, RATE_LIMIT_EXEMPT)
+    logging.info("Rate limiting initialized | RPM=%d | BURST=%d | EXEMPT=%s", 
+                 RATE_LIMIT_RPM, RATE_LIMIT_BURST, ",".join(RATE_LIMIT_EXEMPT))
     
     # Warn if MASTER_KEY is not configured
     if not MASTER_KEY:
