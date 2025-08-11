@@ -199,4 +199,4 @@ if __name__ == '__main__':
     # Ensure database table exists
     migrate()
     
-    app.run(debug=DEBUG, port=SERVER_PORT)
+    app.run(host="0.0.0.0", debug=DEBUG, port=SERVER_PORT)

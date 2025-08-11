@@ -13,16 +13,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Kill orphan Flask process**: `lsof -ti :5001 | xargs kill -9` (macOS)
 
 ### Environment Setup
-Create a `.env` file with required variables:
+Copy `.env.example` to `.env` and configure with your values:
+```bash
+cp .env.example .env
 ```
-OPENAI_API_KEY=your_api_key_here
+
+Required environment variables:
+```
+OPENAI_API_KEY=your-openai-api-key-here
 OPENAI_MODEL=gpt-4o-mini-2024-07-18
 PROBE_INTERVAL_SECS=300
 SERVER_PORT=5001
 DB_FILENAME=cost_guardian.db
 HEARTBEAT_PROMPT=ping
 
-# Auth config
+# Environment: development | production
+ENV=development
+
+# CORS: comma-separated origins
+ALLOWED_ORIGINS=http://127.0.0.1:5001,http://localhost:5001
+
+# Auth config (leave API_KEY empty to disable)
 API_KEY=your_secret_api_key_here
 DASHBOARD_PUBLIC=true
 ```
@@ -68,17 +79,27 @@ Single table `usage_log` with fields:
 - `GET /dashboard` - Serve HTML dashboard (configurable protection)
 
 ### Key Patterns
-- Database connections are closed after each operation for automatic cleanup
-- HTTP retry logic in worker for transient API failures (429, 5xx errors) with 1-second delay
-- Environment-based configuration with sensible defaults
-- Error handling with full tracebacks in API responses (development only - restrict in production)
-- Structured logging using Python logging module (avoid logging sensitive data like API keys)
-- Request tracing with unique IDs and response time logging
-- Consistent JSON error responses with request correlation
+- Database connections use context managers (`with get_conn() as conn`) for automatic cleanup
+- HTTP retry logic in worker for transient API failures (429, 5xx errors) with 1-second delay and max 2 attempts
+- Environment-based configuration with sensible defaults via `config.py`
+- Error handling with conditional full tracebacks (DEBUG mode only, clean JSON errors in production)
+- Structured logging using Python logging module with request correlation IDs
+- Request tracing middleware: 8-character UUIDs for correlation, response time logging in milliseconds
+- Consistent JSON error responses with `json_error()` helper function
+- CORS configuration: restrictive with `ALLOWED_ORIGINS` in production, wide open in development
+- Cost calculation with configurable rates in `calc.py` (currently hardcoded for gpt-4o-mini pricing)
 
 ### Security & Production Notes
 - **API Key Auth**: Simple header-based authentication (`X-API-Key`)
-- **CORS**: Currently wide open for development; restrict origins in production
-- **Error responses**: Full tracebacks shown in development; should be conditional on DEBUG mode in production
+- **CORS**: Configured via `ALLOWED_ORIGINS` environment variable; falls back to wide-open in development
+- **Error responses**: Full tracebacks conditional on `DEBUG` flag (auto-determined from `ENV` setting)
 - **Environment**: Ensure `.env` file security and never commit API keys to version control
 - **Auth bypass**: If `API_KEY` is empty, endpoints remain unprotected (logged as warnings)
+- **Production checklist**: Set `ENV=production`, configure `ALLOWED_ORIGINS`, set strong `API_KEY`
+
+### Development Patterns
+- Use context managers for database operations to ensure proper connection cleanup
+- All Flask routes use consistent error handling with `json_error()` helper
+- Worker uses direct database insertion via `insert_usage()`, API `/log` endpoint for external clients
+- Dashboard HTML template supports both authenticated and public access modes
+- Cost rates in `calc.py` should be updated when OpenAI pricing changes
