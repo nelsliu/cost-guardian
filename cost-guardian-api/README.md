@@ -26,6 +26,7 @@ Cost Guardian is a Flask-based web application that helps you monitor your OpenA
 
 ### 🔒 **Enterprise Security**
 - **API Key Authentication**: Secure admin access with X-API-Key headers
+- **Rate Limiting**: Per-API-key token bucket rate limiting with configurable limits
 - **Configurable Dashboard Access**: Public or private dashboard modes
 - **Production Ready**: Environment-based configuration with security warnings
 - **CORS Protection**: Configurable origin restrictions
@@ -70,6 +71,11 @@ API_KEY=your_secret_admin_key_here
 # OpenAI settings
 OPENAI_MODEL=gpt-4o-mini-2024-07-18
 PROBE_INTERVAL_SECS=300
+
+# Rate limiting (optional)
+RATE_LIMIT_RPM=60
+RATE_LIMIT_BURST=60
+RATE_LIMIT_EXEMPT=/ping,/dashboard
 ```
 
 ### 3. Run the Application
@@ -114,6 +120,12 @@ Visit `http://localhost:5001/dashboard` to:
 2. **Cost Attribution**: View usage and costs broken down by individual API key
 3. **Historical Data**: Access complete usage history via dashboard or API
 4. **Export Data**: Use REST endpoints for integration with other tools
+
+### Rate Limiting (Optional)
+1. **Per-Key Limiting**: Each API key gets separate rate limit buckets
+2. **Token Bucket Algorithm**: Configurable requests per minute with burst capacity
+3. **Automatic Fallback**: IP-based limiting when authentication is disabled
+4. **Exempt Endpoints**: Health checks and dashboard always accessible
 
 ## 📡 API Endpoints
 

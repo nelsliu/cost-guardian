@@ -153,6 +153,7 @@ def ping():
 def health():
     return jsonify({"status": "healthy", "timestamp": time.time()})
 
+
 @app.route('/data', methods=['GET'])
 @require_api_key
 def get_data():
