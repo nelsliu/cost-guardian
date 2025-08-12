@@ -366,6 +366,17 @@
         </thead>
         <tbody>
         </tbody>
+        <tfoot id="usage-totals">
+            <tr>
+                <td><strong>Totals</strong></td>
+                <td></td>
+                <td></td>
+                <td id="sum-prompt"><strong>0</strong></td>
+                <td id="sum-completion"><strong>0</strong></td>
+                <td id="sum-total"><strong>0</strong></td>
+                <td id="sum-cost"><strong>$0.0000</strong></td>
+            </tr>
+        </tfoot>
     </table>
 
     <!-- Auth Status Footer -->
@@ -519,7 +530,7 @@
             }
         }
 
-        // Table rendering (unchanged)
+        // Table rendering with totals
         function renderRows(rows) {
             const tableBody = document.getElementById('usage-table').getElementsByTagName('tbody')[0];
             tableBody.innerHTML = '';
@@ -538,6 +549,46 @@
                     tableBody.appendChild(tr);
                 });
             }
+            
+            // Update totals row
+            renderTotals(computeTotals(rows));
+        }
+
+        function computeTotals(rows) {
+            if (!Array.isArray(rows) || rows.length === 0) {
+                return {
+                    promptTokens: 0,
+                    completionTokens: 0,
+                    totalTokens: 0,
+                    estimatedCostUSD: 0
+                };
+            }
+            
+            return rows.reduce((totals, row) => {
+                totals.promptTokens += parseFloat(row.promptTokens) || 0;
+                totals.completionTokens += parseFloat(row.completionTokens) || 0;
+                totals.totalTokens += parseFloat(row.totalTokens) || 0;
+                totals.estimatedCostUSD += parseFloat(row.estimatedCostUSD) || 0;
+                return totals;
+            }, {
+                promptTokens: 0,
+                completionTokens: 0,
+                totalTokens: 0,
+                estimatedCostUSD: 0
+            });
+        }
+
+        function renderTotals(totals) {
+            const formatter = new Intl.NumberFormat('en-US', { 
+                style: 'currency', 
+                currency: 'USD', 
+                minimumFractionDigits: 4 
+            });
+            
+            document.getElementById('sum-prompt').innerHTML = `<strong>${totals.promptTokens.toLocaleString()}</strong>`;
+            document.getElementById('sum-completion').innerHTML = `<strong>${totals.completionTokens.toLocaleString()}</strong>`;
+            document.getElementById('sum-total').innerHTML = `<strong>${totals.totalTokens.toLocaleString()}</strong>`;
+            document.getElementById('sum-cost').innerHTML = `<strong>${formatter.format(totals.estimatedCostUSD)}</strong>`;
         }
 
         // Data fetching with auth

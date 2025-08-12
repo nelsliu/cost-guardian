@@ -22,10 +22,12 @@ Cost Guardian is a Flask-based web application that helps you monitor your OpenA
 - **Clean Interface**: Modern, responsive web UI for monitoring and management
 - **Real-time Data**: Live usage statistics and cost tracking
 - **Key Management**: Add, test, activate/deactivate, and delete API keys
+- **Usage Totals**: Automatic totals row showing aggregated tokens and costs
 - **Data Export**: View detailed usage logs with JSON API endpoints
 
 ### 🔒 **Enterprise Security**
 - **API Key Authentication**: Secure admin access with X-API-Key headers
+- **Rate Limiting**: Per-API-key token bucket rate limiting with configurable limits
 - **Configurable Dashboard Access**: Public or private dashboard modes
 - **Production Ready**: Environment-based configuration with security warnings
 - **CORS Protection**: Configurable origin restrictions
@@ -70,6 +72,11 @@ API_KEY=your_secret_admin_key_here
 # OpenAI settings
 OPENAI_MODEL=gpt-4o-mini-2024-07-18
 PROBE_INTERVAL_SECS=300
+
+# Rate limiting (optional)
+RATE_LIMIT_RPM=60
+RATE_LIMIT_BURST=60
+RATE_LIMIT_EXEMPT=/ping,/dashboard
 ```
 
 ### 3. Run the Application
@@ -115,6 +122,13 @@ Visit `http://localhost:5001/dashboard` to:
 3. **Historical Data**: Access complete usage history via dashboard or API
 4. **Export Data**: Use REST endpoints for integration with other tools
 
+### Rate Limiting (Optional)
+1. **Per-Key Limiting**: Each API key gets separate rate limit buckets
+2. **Token Bucket Algorithm**: Configurable requests per minute with burst capacity
+3. **Automatic Fallback**: IP-based limiting when authentication is disabled
+4. **Exempt Endpoints**: Health checks and dashboard always accessible
+5. **In-Memory Buckets**: Rate limits are per-process; with multiple workers/replicas, limits apply per worker
+
 ## 📡 API Endpoints
 
 ### Public Endpoints
@@ -129,6 +143,25 @@ Visit `http://localhost:5001/dashboard` to:
 - `DELETE /keys/<id>` - Remove API key
 - `POST /keys/<id>/probe` - Test specific key
 - `DELETE /reset` - Clear all usage data
+- `GET /metrics` - System metrics and health status
+
+#### Example /metrics Response
+```json
+{
+  "version": "1",
+  "env": "development", 
+  "debug": true,
+  "rate_limit": { "rpm": 60, "burst": 60, "exempt_paths": ["/ping", "/dashboard"] },
+  "counters": { "rate_limit_hits": 42 },
+  "db": {
+    "usage_rows": 1250,
+    "active_keys": 3,
+    "last_usage_at": "2024-01-15T10:30:45.123456+00:00",
+    "last_key_ok_at": "2024-01-15T10:30:12.987654+00:00"
+  },
+  "worker": { "probe_interval_secs": 300, "healthy": true }
+}
+```
 
 ## 🐳 Docker Deployment
 
