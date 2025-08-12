@@ -1,270 +1,251 @@
-# Cost Guardian 💰
+Here’s a cleaned-up, production-ready README you can drop in:
 
-**Real-time OpenAI API cost monitoring and multi-user key management**
+Cost Guardian 💰
 
-Cost Guardian is a Flask-based web application that helps you monitor your OpenAI API usage and costs in real-time. It features secure multi-user API key management, automatic usage tracking, and a clean web dashboard for monitoring your AI spend.
+Real-time OpenAI API cost monitoring with secure multi-key management
 
-## ✨ Features
+Cost Guardian is a Flask-based web app that helps you monitor OpenAI API usage and costs in real time. It includes encrypted API key storage, background usage collection, rate limiting, and a simple web dashboard.
 
-### 🔐 **Secure Multi-User API Key Management**
-- **Encrypted Storage**: All API keys are encrypted at rest using Fernet symmetric encryption
-- **Multi-Key Support**: Add and manage multiple OpenAI API keys with custom labels
-- **Access Control**: Toggle keys on/off without deleting them
-- **Real-time Testing**: Test any API key instantly from the dashboard
+⸻
 
-### 📊 **Automated Usage Tracking** 
-- **Background Monitoring**: Continuously probes OpenAI API to track token usage
-- **Cost Calculation**: Automatic cost estimation based on current OpenAI pricing
-- **Per-Key Attribution**: Track usage and costs for each individual API key
-- **Health Monitoring**: Tracks last successful connection time for each key
+✨ Features
 
-### 🎛️ **Web Dashboard**
-- **Clean Interface**: Modern, responsive web UI for monitoring and management
-- **Real-time Data**: Live usage statistics and cost tracking
-- **Key Management**: Add, test, activate/deactivate, and delete API keys
-- **Usage Totals**: Automatic totals row showing aggregated tokens and costs
-- **Data Export**: View detailed usage logs with JSON API endpoints
+🔐 Secure multi-key management
+	•	Encrypted at rest with Fernet (symmetric encryption)
+	•	Multiple keys per deployment, each with a label
+	•	Activate/disable keys without deleting
+	•	Masked display—plaintext keys never returned or logged
 
-### 🔒 **Enterprise Security**
-- **API Key Authentication**: Secure admin access with X-API-Key headers
-- **Rate Limiting**: Per-API-key token bucket rate limiting with configurable limits
-- **Configurable Dashboard Access**: Public or private dashboard modes
-- **Production Ready**: Environment-based configuration with security warnings
-- **CORS Protection**: Configurable origin restrictions
+📊 Automated usage tracking
+	•	Background worker probes OpenAI regularly
+	•	Cost estimates using the configured model’s pricing
+	•	Per-key attribution for usage and cost
+	•	Health flag: last successful probe per key
 
-### 🐳 **Docker Support**
-- **Containerized**: Full Docker and Docker Compose support
-- **Volume Persistence**: Database and configuration persistence
-- **Health Checks**: Built-in container health monitoring
-- **Easy Deployment**: Single command deployment
+🎛️ Dashboard
+	•	Live table of usage rows
+	•	Totals row (tokens & $)
+	•	Manage API keys (add/activate/delete)
+	•	Auth UI (enter admin API key once; “remember” option)
 
-## 🚀 Quick Start
+🔒 Production hardening
+	•	Admin auth via X-API-Key
+	•	Rate limiting (token bucket; per API key or IP)
+	•	CORS controls (allowed origins)
+	•	Environment-aware errors (clean JSON in prod)
 
-### Prerequisites
-- Python 3.9+
-- OpenAI API key
-- Docker & Docker Compose (optional)
+🐳 Docker support
+	•	Dockerfile + docker compose
+	•	Health checks
+	•	Persistent volume for database
 
-### 1. Clone and Setup
+⸻
 
-```bash
+🚀 Quick Start
+
+Prerequisites
+	•	Python 3.9+
+	•	(Optional) Docker & Docker Compose
+	•	An OpenAI account (you add API keys in the dashboard—not in .env)
+
+1) Clone & install (no Docker)
+
 git clone <repository-url>
 cd cost-guardian-api
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
-```
 
-### 2. Configuration
+2) Configure
 
-Copy the example environment file and configure:
+Copy the example env and set required values:
 
-```bash
 cp .env.example .env
-```
 
-**Essential configuration:**
-```env
-# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-MASTER_KEY=your_32_byte_fernet_key_here
+Essential configuration:
 
-# Your admin API key for dashboard access
-API_KEY=your_secret_admin_key_here
+# Required
+MASTER_KEY=your_32_byte_fernet_key_here           # Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+API_KEY=your_secret_admin_key_here                # For admin requests to protected endpoints
+ENV=production                                    # production | development
+ALLOWED_ORIGINS=https://your-domain.com           # Comma-separated list of allowed browser origins
 
-# OpenAI settings
+# OpenAI + worker
 OPENAI_MODEL=gpt-4o-mini-2024-07-18
 PROBE_INTERVAL_SECS=300
 
-# Rate limiting (optional)
+# Rate limiting (optional; per process)
 RATE_LIMIT_RPM=60
 RATE_LIMIT_BURST=60
-RATE_LIMIT_EXEMPT=/ping,/dashboard
-```
+RATE_LIMIT_EXEMPT=/ping,/dashboard,/health
 
-### 3. Run the Application
+Notes
+	•	Do not change MASTER_KEY after adding keys; previously stored keys become unrecoverable.
+	•	In development you can set ENV=development and ALLOWED_ORIGINS=http://127.0.0.1:5001.
 
-**Option A: Direct Python**
-```bash
-# Start the web server
+3) Run it
+
+Option A — Python
+
+# Terminal 1 (API)
 python app.py
 
-# In another terminal, start the worker
+# Terminal 2 (worker)
 python worker.py
-```
 
-**Option B: Docker Compose**
-```bash
-docker-compose up -d
-```
+Option B — Docker
 
-### 4. Access Dashboard
+docker compose up -d
 
-Visit `http://localhost:5001/dashboard` to:
-- Add your OpenAI API keys
-- Monitor real-time usage and costs
-- Test key validity
-- View detailed usage logs
+4) Open the dashboard
 
-## 🔧 Usage Workflow
+Visit: http://localhost:5001/dashboard
 
-### Initial Setup
-1. **Generate Master Key**: Create a secure encryption key for API key storage
-2. **Set Admin Key**: Configure admin access to the dashboard
-3. **Start Services**: Launch both the web server and background worker
+From the dashboard you can:
+	•	Add your OpenAI API keys (stored encrypted)
+	•	See live usage rows & totals
+	•	Activate/deactivate or delete keys
 
-### Managing API Keys
-1. **Add Keys**: Use the dashboard to securely add labeled OpenAI API keys
-2. **Test Keys**: Instantly verify key validity with the "Test" button
-3. **Monitor Health**: View last successful connection time for each key
-4. **Toggle Access**: Activate/deactivate keys without deleting them
+⸻
 
-### Monitoring Usage
-1. **Real-time Tracking**: Worker automatically probes active keys every 5 minutes
-2. **Cost Attribution**: View usage and costs broken down by individual API key
-3. **Historical Data**: Access complete usage history via dashboard or API
-4. **Export Data**: Use REST endpoints for integration with other tools
+🔧 How it works
+	1.	Admin auth: Protected endpoints require X-API-Key: <your_admin_key>. The dashboard HTML loads, then JS calls protected endpoints with your key.
+	2.	Keys at rest: Your OpenAI keys are encrypted with MASTER_KEY and never returned in plaintext.
+	3.	Background worker: Probes the OpenAI API on a schedule and logs per-key usage to SQLite.
+	4.	Rate limiting: Token bucket—configurable RPM & burst. In auth mode it limits per API key; in no-auth mode it limits per IP.
+Limits are per process (in-memory). Multiple API replicas mean limits apply per replica.
 
-### Rate Limiting (Optional)
-1. **Per-Key Limiting**: Each API key gets separate rate limit buckets
-2. **Token Bucket Algorithm**: Configurable requests per minute with burst capacity
-3. **Automatic Fallback**: IP-based limiting when authentication is disabled
-4. **Exempt Endpoints**: Health checks and dashboard always accessible
-5. **In-Memory Buckets**: Rate limits are per-process; with multiple workers/replicas, limits apply per worker
+⸻
 
-## 📡 API Endpoints
+📡 API Endpoints
 
-### Public Endpoints
-- `GET /ping` - Health check
-- `GET /dashboard` - Web dashboard (configurable)
+Public
+	•	GET /ping — lightweight liveness
+	•	GET /health — health probe
+	•	GET /dashboard — dashboard HTML (data calls are protected)
 
-### Protected Endpoints (require X-API-Key header)
-- `GET /data` - Retrieve usage logs
-- `GET /keys` - List API keys (masked)
-- `POST /keys` - Add new API key
-- `PATCH /keys/<id>/active` - Toggle key status
-- `DELETE /keys/<id>` - Remove API key
-- `POST /keys/<id>/probe` - Test specific key
-- `DELETE /reset` - Clear all usage data
-- `GET /metrics` - System metrics and health status
+Protected (require X-API-Key)
+	•	GET /data — list usage rows
+	•	DELETE /reset — clear usage data
+	•	GET /keys — list keys (masked)
+	•	POST /keys — add key {label, key, provider}
+	•	PATCH /keys/<id>/active — activate/deactivate
+	•	DELETE /keys/<id> — delete key
+	•	GET /metrics — system metrics & health
 
-#### Example /metrics Response
-```json
+Example /metrics
+
+curl -s -H "X-API-Key: $API_KEY" http://localhost:5001/metrics | jq
+
+Example response (fields abbreviated):
+
 {
   "version": "1",
-  "env": "development", 
-  "debug": true,
-  "rate_limit": { "rpm": 60, "burst": 60, "exempt_paths": ["/ping", "/dashboard"] },
-  "counters": { "rate_limit_hits": 42 },
+  "env": "production",
+  "debug": false,
+  "rate_limit": {"rpm": 60, "burst": 60, "exempt_paths": ["/ping","/dashboard","/health"]},
+  "counters": {"rate_limit_hits": 2},
   "db": {
     "usage_rows": 1250,
     "active_keys": 3,
-    "last_usage_at": "2024-01-15T10:30:45.123456+00:00",
-    "last_key_ok_at": "2024-01-15T10:30:12.987654+00:00"
+    "last_usage_at": "2025-08-11T10:30:45+00:00",
+    "last_key_ok_at": "2025-08-11T10:30:12+00:00"
   },
-  "worker": { "probe_interval_secs": 300, "healthy": true }
+  "worker": {"probe_interval_secs": 300, "healthy": true}
 }
-```
 
-## 🐳 Docker Deployment
 
-### Development
-```bash
-docker-compose up -d
-```
+⸻
 
-### Production
-```bash
-# Set production environment
+🐳 Docker deployment
+
+Development
+
+docker compose up -d
+
+Production (example)
+
 export ENV=production
-export MASTER_KEY="your_secure_master_key"
+export MASTER_KEY="your_master_key"
 export API_KEY="your_admin_key"
+export ALLOWED_ORIGINS="https://your-domain.com"
 
-docker-compose up -d
-```
+docker compose up -d
 
-### Docker Security Notes
-- Use environment variables or Docker secrets for sensitive keys
-- Never bake MASTER_KEY into Docker images
-- Restrict ALLOWED_ORIGINS in production
-- Use HTTPS in production deployments
+Security tips
+	•	Provide secrets via env vars or Docker secrets (not baked into images)
+	•	Restrict ALLOWED_ORIGINS
+	•	Terminate TLS (HTTPS) at a reverse proxy (nginx/Traefik) in front
 
-## 🔐 Security Considerations
+⸻
 
-### Encryption
-- **Master Key**: All API keys encrypted with Fernet symmetric encryption
-- **Key Storage**: Only encrypted blobs stored in database
-- **No Key Leakage**: Plaintext keys never logged or exposed via API
+🔐 Security considerations
+	•	MASTER_KEY: Back it up securely (password manager / vault). If lost, encrypted keys are unrecoverable.
+	•	No plaintext key exposure: The server never returns stored API keys.
+	•	Auth vs. rate limiting:
+	•	Missing/invalid admin key → 401
+	•	Over the limit → 429 with Retry-After
+	•	Prod error handling: In ENV=production, clients get clean JSON; full tracebacks stay in server logs.
 
-### Access Control
-- **Admin Authentication**: X-API-Key header required for management endpoints
-- **Dashboard Security**: Configurable public/private access
-- **CORS Protection**: Configurable origin restrictions
+⸻
 
-### Production Checklist
-- [ ] Set `ENV=production`
-- [ ] Configure strong `API_KEY` 
-- [ ] Set `ALLOWED_ORIGINS` to specific domains
-- [ ] Backup `MASTER_KEY` securely
-- [ ] Use HTTPS
-- [ ] Regular security updates
+🧭 Troubleshooting
+	•	Port already in use: Stop previous server. macOS:
 
-## 📂 Project Structure
+lsof -ti :5001 | xargs kill -9
 
-```
+
+	•	CORS blocked: Set ALLOWED_ORIGINS to match the URL you load the dashboard from.
+	•	Cannot fetch data (401): Ensure requests include X-API-Key equal to your admin key.
+	•	Rate limited (429): The dashboard auto-retries; or respect Retry-After header.
+
+⸻
+
+📂 Project structure
+
 cost-guardian-api/
-├── app.py              # Flask web server & API endpoints
-├── worker.py           # Background usage monitoring
-├── crypto.py           # Encryption/decryption utilities
-├── db.py              # Database operations & schema
-├── calc.py            # Cost calculation logic
-├── config.py          # Configuration management
-├── templates/
-│   └── dashboard.html # Web dashboard UI
-├── requirements.txt   # Python dependencies
-├── Dockerfile        # Container definition
-├── docker-compose.yml # Multi-service orchestration
-└── README.md         # This file
-```
+├─ app.py               # Flask API & routes
+├─ worker.py            # Background probing loop
+├─ crypto.py            # Fernet encrypt/decrypt helpers
+├─ db.py                # SQLite schema & ops
+├─ calc.py              # Cost calculation
+├─ rate_limit.py        # Token bucket limiter
+├─ metrics.py           # Counters & metrics snapshot
+├─ config.py            # Env-driven configuration
+├─ templates/
+│  └─ dashboard.html    # Dashboard UI
+├─ requirements.txt
+├─ Dockerfile
+├─ docker-compose.yml
+└─ README.md
 
-## 🛠️ Development
 
-### Running Tests
-```bash
-# Test single probe
-python worker.py --once
+⸻
 
-# Manual API testing
-curl -H "X-API-Key: your_key" http://localhost:5001/keys
-```
+🛠️ Development tips
 
-### Database Management
-```bash
-# Manual migration
+Run tests / manual probes
+
+# Ensure DB schema is up to date
 python -c "from db import migrate; migrate()"
 
-# Reset all data
-curl -X DELETE -H "X-API-Key: your_key" http://localhost:5001/reset
-```
+# One-off probe (uses active keys)
+python worker.py --once
 
-## ⚠️ Important Warnings
+# Manual API check (requires admin key)
+curl -H "X-API-Key: $API_KEY" http://localhost:5001/keys
 
-### Master Key Security
-- **BACKUP YOUR MASTER KEY**: If lost, all stored API keys become permanently unrecoverable
-- **Store Securely**: Use a password manager or encrypted vault
-- **Never Commit**: Ensure `.env` is in `.gitignore`
 
-### Production Deployment
-- **Use HTTPS**: Encrypt traffic in production
-- **Restrict Origins**: Configure `ALLOWED_ORIGINS` appropriately
-- **Monitor Logs**: Watch for unauthorized access attempts
-- **Regular Updates**: Keep dependencies current
+⸻
 
-## 📄 License
+📄 License
 
-[Add your license here]
+Add your license text here.
 
-## 🤝 Contributing
+🤝 Contributing
 
-[Add contribution guidelines here]
+PRs and issues welcome—please open a discussion with proposed changes and rationale.
 
----
+⸻
 
-**Cost Guardian** - Keep your AI costs under control! 🎯
+Cost Guardian — keep your AI costs under control. 🎯
