@@ -87,8 +87,8 @@ def is_exempt_path(path: str, method: str = None) -> bool:
     if method == "OPTIONS":
         return True
     
-    # Check configured exempt paths
-    return path in _exempt_paths
+    # Check configured exempt paths (exact match or prefix match)
+    return any(path == p or path.startswith(p.rstrip('/') + '/') for p in _exempt_paths)
 
 def get_config() -> dict:
     """Get current rate limiting configuration.

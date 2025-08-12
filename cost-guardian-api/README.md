@@ -22,6 +22,7 @@ Cost Guardian is a Flask-based web application that helps you monitor your OpenA
 - **Clean Interface**: Modern, responsive web UI for monitoring and management
 - **Real-time Data**: Live usage statistics and cost tracking
 - **Key Management**: Add, test, activate/deactivate, and delete API keys
+- **Usage Totals**: Automatic totals row showing aggregated tokens and costs
 - **Data Export**: View detailed usage logs with JSON API endpoints
 
 ### 🔒 **Enterprise Security**
@@ -126,6 +127,7 @@ Visit `http://localhost:5001/dashboard` to:
 2. **Token Bucket Algorithm**: Configurable requests per minute with burst capacity
 3. **Automatic Fallback**: IP-based limiting when authentication is disabled
 4. **Exempt Endpoints**: Health checks and dashboard always accessible
+5. **In-Memory Buckets**: Rate limits are per-process; with multiple workers/replicas, limits apply per worker
 
 ## 📡 API Endpoints
 
@@ -141,6 +143,25 @@ Visit `http://localhost:5001/dashboard` to:
 - `DELETE /keys/<id>` - Remove API key
 - `POST /keys/<id>/probe` - Test specific key
 - `DELETE /reset` - Clear all usage data
+- `GET /metrics` - System metrics and health status
+
+#### Example /metrics Response
+```json
+{
+  "version": "1",
+  "env": "development", 
+  "debug": true,
+  "rate_limit": { "rpm": 60, "burst": 60, "exempt_paths": ["/ping", "/dashboard"] },
+  "counters": { "rate_limit_hits": 42 },
+  "db": {
+    "usage_rows": 1250,
+    "active_keys": 3,
+    "last_usage_at": "2024-01-15T10:30:45.123456+00:00",
+    "last_key_ok_at": "2024-01-15T10:30:12.987654+00:00"
+  },
+  "worker": { "probe_interval_secs": 300, "healthy": true }
+}
+```
 
 ## 🐳 Docker Deployment
 
