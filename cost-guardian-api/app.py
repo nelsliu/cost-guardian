@@ -5,7 +5,7 @@ from functools import wraps
 from datetime import datetime, timezone
 
 from config import DB_PATH, SERVER_PORT, API_KEY, DASHBOARD_PUBLIC, ENV, DEBUG, ALLOWED_ORIGINS, MASTER_KEY, RATE_LIMIT_RPM, RATE_LIMIT_BURST, RATE_LIMIT_EXEMPT, PROBE_INTERVAL_SECS, INGEST_KEY, INGEST_RPM, INGEST_BURST, WORKER_HEARTBEAT_ENABLED, TRACKING_TOKEN_LENGTH
-from db import migrate, add_api_key, list_api_keys, set_api_key_active, delete_api_key, insert_usage, get_tracking_token_by_token, touch_tracking_token_last_seen, check_usage_duplicate, create_tracking_token, list_tracking_tokens, set_tracking_token_active, delete_tracking_token
+from db import migrate, add_api_key, list_api_keys, set_api_key_active, delete_api_key, insert_usage, get_tracking_token_by_token, touch_tracking_token_last_seen, check_usage_duplicate, create_tracking_token, list_tracking_tokens, set_tracking_token_active, delete_tracking_token, query_usage, list_models
 from crypto import encrypt_key, decrypt_key
 from worker import probe_single_key
 from rate_limit import init_limit, init_ingest_limit, check_rate_limit, is_exempt_path
@@ -158,6 +158,41 @@ def handle_exception(e):
         logging.exception("[%s] Unhandled exception", g.get('req_id', '-'))
         return json_error(500, "Internal server error")
 
+# Date normalization helpers for filtering
+
+def _to_iso_utc_end_of_day(date_only: str) -> str:
+    """Convert YYYY-MM-DD to end-of-day UTC ISO string."""
+    dt = datetime.fromisoformat(date_only).replace(tzinfo=timezone.utc)
+    return dt.replace(hour=23, minute=59, second=59).isoformat().replace("+00:00", "Z")
+
+def _normalize_time_param(v: str, is_end: bool = False) -> str:
+    """Normalize time parameter to ISO UTC string.
+    
+    Args:
+        v: Input string (YYYY-MM-DD or full ISO)
+        is_end: If True and input is date-only, convert to end of day
+        
+    Returns:
+        Normalized ISO UTC string or None if invalid
+    """
+    if not v:
+        return None
+    try:
+        # Check if it's a date-only format (YYYY-MM-DD)
+        if len(v) == 10 and v[4] == '-' and v[7] == '-':
+            if is_end:
+                return _to_iso_utc_end_of_day(v)
+            else:
+                dt = datetime.fromisoformat(v).replace(tzinfo=timezone.utc)
+                return dt.isoformat().replace("+00:00", "Z")
+        
+        # Handle full ISO format (with or without Z/offset)
+        iso_str = v.replace("Z", "+00:00") if v.endswith("Z") else v
+        dt = datetime.fromisoformat(iso_str).astimezone(timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
+    except Exception:
+        return None
+
 @app.route('/ping')
 def ping():
     return jsonify({"message": "pong"})
@@ -297,21 +332,61 @@ def get_system_metrics():
 @app.route('/data', methods=['GET'])
 @require_api_key
 def get_data():
+    """Get usage data with optional filtering by date range and model."""
     try:
-        logging.info("Connecting to DB...")
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        logging.info("Running SELECT query...")
-        cursor.execute("SELECT * FROM usage_log")
-        rows = cursor.fetchall()
-        logging.info("Fetched %d rows from DB.", len(rows))
-        conn.close()
-        data_list = [dict(row) for row in rows]
-        logging.info("Returning data...")
-        return jsonify({"data": data_list})
+        # Extract query parameters
+        start_param = request.args.get('start')
+        end_param = request.args.get('end')
+        model_param = request.args.get('model')
+        
+        # Normalize and validate date parameters
+        start_normalized = _normalize_time_param(start_param, is_end=False) if start_param else None
+        end_normalized = _normalize_time_param(end_param, is_end=True) if end_param else None
+        
+        # Validate date parameters
+        if start_param and not start_normalized:
+            return json_error(400, f"Invalid start date format: {start_param}. Use YYYY-MM-DD or ISO-8601.")
+        
+        if end_param and not end_normalized:
+            return json_error(400, f"Invalid end date format: {end_param}. Use YYYY-MM-DD or ISO-8601.")
+        
+        # Validate date range
+        if start_normalized and end_normalized:
+            start_dt = datetime.fromisoformat(start_normalized.replace("Z", "+00:00"))
+            end_dt = datetime.fromisoformat(end_normalized.replace("Z", "+00:00"))
+            if start_dt > end_dt:
+                return json_error(400, "Start date cannot be after end date.")
+        
+        # Query with filters
+        logging.info("Querying usage data with filters: start=%s, end=%s, model=%s", 
+                    start_normalized, end_normalized, model_param)
+        
+        rows = query_usage(
+            start=start_normalized,
+            end=end_normalized, 
+            model=model_param
+        )
+        
+        logging.info("Fetched %d rows from DB with filters.", len(rows))
+        return jsonify({"data": rows})
+        
     except Exception:
         logging.exception("[%s] Error occurred in /data route", g.get('req_id', '-'))
+        if DEBUG:
+            return jsonify({"error": traceback.format_exc()}), 500
+        else:
+            return json_error(500, "Internal server error")
+
+@app.route('/models', methods=['GET'])
+@require_api_key
+def get_models():
+    """Get all distinct model names from the usage data."""
+    try:
+        models = list_models()
+        logging.info("Returning %d distinct models", len(models))
+        return jsonify({"models": models})
+    except Exception:
+        logging.exception("[%s] Error occurred in /models route", g.get('req_id', '-'))
         if DEBUG:
             return jsonify({"error": traceback.format_exc()}), 500
         else:

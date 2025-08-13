@@ -595,6 +595,73 @@
             margin-bottom: 0.5rem;
             font-size: 1.1rem;
         }
+
+        /* Data filters styles */
+        .filters {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+            margin: 1.5rem 0;
+            padding: 1rem;
+            background: #f8f9fa;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+        }
+        .filters .group {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        .filters label {
+            font-weight: bold;
+            color: #333;
+            margin: 0;
+        }
+        .filters select, .filters input[type="date"] {
+            padding: 0.4rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        .filters select:focus, .filters input[type="date"]:focus {
+            outline: none;
+            border-color: #007cba;
+            box-shadow: 0 0 0 2px rgba(0, 124, 186, 0.1);
+        }
+        #custom-date-wrap {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        .spinner-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ccc;
+            border-top: 2px solid #007cba;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
     </style>
 </head>
 <body>
@@ -996,6 +1063,34 @@ console.log(response.choices[0].message.content);</pre>
     <button id="reset-btn" disabled>Reset Data</button>
     <p id="reset-status"></p>
     
+    <!-- Data Filters -->
+    <div class="filters" aria-live="polite">
+        <div class="group">
+            <label for="range-select">Date Range:</label>
+            <select id="range-select">
+                <option value="today">Today</option>
+                <option value="this_week">This Week</option>
+                <option value="this_month" selected>This Month</option>
+                <option value="custom">Custom</option>
+            </select>
+            <span id="custom-date-wrap" style="display:none;">
+                <input type="date" id="start-date" aria-label="Start date">
+                <input type="date" id="end-date" aria-label="End date">
+                <button type="button" id="apply-filters" class="btn-primary">Apply</button>
+            </span>
+        </div>
+        <div class="group">
+            <label for="model-select">Model:</label>
+            <select id="model-select">
+                <option value="all" selected>All Models</option>
+            </select>
+        </div>
+        <div class="spinner-container" id="filter-spinner" style="display:none;">
+            <span class="spinner" role="status" aria-label="Loading"></span>
+            <span class="sr-only">Loading data...</span>
+        </div>
+    </div>
+    
     <table border="1" id="usage-table">
         <thead>
             <tr>
@@ -1235,24 +1330,113 @@ console.log(response.choices[0].message.content);</pre>
             document.getElementById('sum-cost').innerHTML = `<strong>${formatter.format(totals.estimatedCostUSD)}</strong>`;
         }
 
-        // Data fetching with auth
-        async function fetchData() {
+        // Date and filtering helpers
+        function toISOStartOfDay(dateStr) {
+            return new Date(dateStr + 'T00:00:00Z').toISOString();
+        }
+
+        function toISOEndOfDay(dateStr) {
+            return new Date(dateStr + 'T23:59:59Z').toISOString();
+        }
+
+        function computePresetRange(preset) {
+            const now = new Date();
+            const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+            
+            if (preset === 'today') {
+                return { 
+                    start: today.toISOString(), 
+                    end: new Date(today.getTime() + 86399 * 1000).toISOString() 
+                };
+            }
+            
+            if (preset === 'this_week') {
+                // ISO week: Monday start. Compute day (0=Sun..6=Sat); shift to Monday.
+                const day = (today.getUTCDay() + 6) % 7;
+                const monday = new Date(today.getTime() - day * 86400000);
+                const sundayEnd = new Date(monday.getTime() + 6 * 86400000 + 86399 * 1000);
+                return { start: monday.toISOString(), end: sundayEnd.toISOString() };
+            }
+            
+            if (preset === 'this_month') {
+                const first = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+                const last = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0, 23, 59, 59));
+                return { start: first.toISOString(), end: last.toISOString() };
+            }
+            
+            return { start: null, end: null };
+        }
+
+        function renderTableMessage(text, type = 'info') {
+            const tbody = document.getElementById('usage-table').getElementsByTagName('tbody')[0];
+            const color = type === 'error' ? '#d32f2f' : '#666';
+            tbody.innerHTML = `<tr><td colspan="7" style="color:${color}; padding:1rem; text-align:center;">${text}</td></tr>`;
+        }
+
+        function populateModelOptions(rows) {
+            const select = document.getElementById('model-select');
+            const current = select.value || 'all';
+            const models = Array.from(new Set((rows || []).map(r => r.model).filter(Boolean))).sort();
+            
+            // Keep first option as "All Models"
+            const opts = ['<option value="all">All Models</option>'].concat(
+                models.map(m => `<option value="${m}">${m}</option>`)
+            );
+            select.innerHTML = opts.join('');
+            
+            // Try to preserve previous selection if still present
+            if ([...select.options].some(o => o.value === current)) {
+                select.value = current;
+            }
+        }
+
+        // Enhanced data fetching with filters
+        async function fetchData(filters = {}) {
             try {
-                const response = await apiFetch('/data');
+                // Loading state
+                document.getElementById('reset-btn').disabled = true;
+                document.getElementById('status-message').classList.add('hidden');
+                renderTableMessage('<span class="spinner" aria-hidden="true"></span> Loading…');
+
+                const params = new URLSearchParams();
+                if (filters.start) params.set('start', filters.start);
+                if (filters.end) params.set('end', filters.end);
+                if (filters.model && filters.model !== 'all') params.set('model', filters.model);
+
+                const response = await apiFetch('/data' + (params.toString() ? `?${params}` : ''));
+                
+                // Check for server validation errors
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || `HTTP ${response.status}`);
+                }
+                
                 const payload = await response.json();
-                
-                // Support both shapes: { data: [...] } or [...]
                 const rows = Array.isArray(payload) ? payload : payload?.data;
+
+                if (!rows || rows.length === 0) {
+                    renderRows([]); // clears body
+                    renderTableMessage('No data for the selected filters.');
+                    renderTotals(computeTotals([])); // ensure totals row shows zeros
+                    return;
+                }
+
                 renderRows(rows);
-                
-                // Enable reset button after successful data load
+                populateModelOptions(rows);
+                renderTotals(computeTotals(rows));
                 document.getElementById('reset-btn').disabled = false;
                 
             } catch (error) {
                 console.error('Error loading data:', error);
-                if (error.message !== 'Unauthorized') {
-                    document.getElementById('reset-btn').disabled = true;
-                }
+                renderRows([]); // clears body
+                
+                // Display server error messages in the table
+                const errorMessage = error.message.includes('HTTP') ? 
+                    'Failed to load data. Please try again.' : 
+                    `Error: ${error.message}`;
+                    
+                renderTableMessage(errorMessage, 'error');
+                renderTotals(computeTotals([]));
             }
         }
 
@@ -2138,19 +2322,123 @@ console.log(response.choices[0].message.content);`;
             }
         });
 
+        // Filtering functions
+        function getCurrentFilters() {
+            const preset = document.getElementById('range-select').value;
+            const model = document.getElementById('model-select').value;
+
+            if (preset === 'custom') {
+                const sd = document.getElementById('start-date').value;
+                const ed = document.getElementById('end-date').value;
+                if (sd && ed) {
+                    return { start: toISOStartOfDay(sd), end: toISOEndOfDay(ed), model };
+                }
+                return { model }; // no date filtering until both provided
+            } else {
+                const { start, end } = computePresetRange(preset);
+                return { start, end, model };
+            }
+        }
+
+        function onPresetChange() {
+            const preset = document.getElementById('range-select').value;
+            const customWrap = document.getElementById('custom-date-wrap');
+            customWrap.style.display = preset === 'custom' ? 'flex' : 'none';
+            if (preset !== 'custom') {
+                // Save filter preference
+                localStorage.setItem('cg_date_preset', preset);
+                fetchData(getCurrentFilters());
+            }
+        }
+
+        // Debounced model change handler
+        let modelChangeTimeout;
+        function onModelChange() {
+            clearTimeout(modelChangeTimeout);
+            modelChangeTimeout = setTimeout(() => {
+                localStorage.setItem('cg_model_filter', document.getElementById('model-select').value);
+                fetchData(getCurrentFilters());
+            }, 150);
+        }
+
+        function onDateChange() {
+            const startDate = document.getElementById('start-date').value;
+            const endDate = document.getElementById('end-date').value;
+            
+            if (startDate && endDate) {
+                fetchData(getCurrentFilters());
+            } else if (startDate || endDate) {
+                // Show hint when only one date is selected
+                const message = startDate ? 'Please select an end date' : 'Please select a start date';
+                renderTableMessage(message);
+            }
+        }
+
+        // Load models from server for stable dropdown
+        async function loadModels() {
+            try {
+                const response = await apiFetch('/models');
+                if (response.ok) {
+                    const data = await response.json();
+                    const select = document.getElementById('model-select');
+                    const currentValue = select.value;
+                    
+                    const opts = ['<option value="all">All Models</option>'].concat(
+                        data.models.map(m => `<option value="${m}">${m}</option>`)
+                    );
+                    select.innerHTML = opts.join('');
+                    
+                    // Restore saved model filter
+                    const savedModel = localStorage.getItem('cg_model_filter');
+                    if (savedModel && [...select.options].some(o => o.value === savedModel)) {
+                        select.value = savedModel;
+                    } else if (currentValue && [...select.options].some(o => o.value === currentValue)) {
+                        select.value = currentValue;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load models:', error);
+                // Fallback to populating from current data
+            }
+        }
+
         // Set up event listeners
         document.getElementById('add-key-form').addEventListener('submit', addKey);
         document.getElementById('add-token-form').addEventListener('submit', addTrackingToken);
 
+        // Filter event listeners
+        document.getElementById('range-select').addEventListener('change', onPresetChange);
+        document.getElementById('model-select').addEventListener('change', onModelChange);
+        document.getElementById('apply-filters').addEventListener('click', () => fetchData(getCurrentFilters()));
+        document.getElementById('start-date').addEventListener('change', onDateChange);
+        document.getElementById('end-date').addEventListener('change', onDateChange);
+
         // Initialize on page load
         async function initialize() {
+            // Set up default filters from localStorage or defaults
+            const savedPreset = localStorage.getItem('cg_date_preset') || 'this_month';
+            const savedModel = localStorage.getItem('cg_model_filter') || 'all';
+            
+            document.getElementById('range-select').value = savedPreset;
+            document.getElementById('model-select').value = savedModel;
+            
+            // Show/hide custom date inputs based on preset
+            const customWrap = document.getElementById('custom-date-wrap');
+            customWrap.style.display = savedPreset === 'custom' ? 'flex' : 'none';
+            
             const existingKey = getApiKey();
             
             if (existingKey) {
                 // Try to authenticate with existing key
                 updateAuthStatus(existingKey);
                 try {
-                    await Promise.all([fetchData(), fetchKeys(), fetchTrackingTokens()]);
+                    // Load data, keys, tokens, and models in parallel
+                    await Promise.all([
+                        fetchData(getCurrentFilters()),
+                        fetchKeys(),
+                        fetchTrackingTokens(),
+                        loadModels()
+                    ]);
                 } catch (error) {
                     // Existing key invalid, clear it
                     clearApiKey();
@@ -2160,7 +2448,12 @@ console.log(response.choices[0].message.content);`;
             } else {
                 // No key - try fetching data to see if auth is required
                 try {
-                    await Promise.all([fetchData(), fetchKeys(), fetchTrackingTokens()]);
+                    await Promise.all([
+                        fetchData(getCurrentFilters()),
+                        fetchKeys(),
+                        fetchTrackingTokens(),
+                        loadModels()
+                    ]);
                 } catch (error) {
                     if (error.message === 'Unauthorized') {
                         showLogin();

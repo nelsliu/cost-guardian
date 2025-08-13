@@ -81,6 +81,10 @@ def migrate():
         c.execute("CREATE INDEX IF NOT EXISTS idx_keys_active ON api_keys(active)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_ingest_tokens_active ON ingest_tokens(active)")
         
+        # Create filtering indexes for dashboard performance  
+        c.execute("CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_log(timestamp)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_usage_model_ts ON usage_log(model, timestamp)")
+        
         # Create unique constraint for labels to prevent duplicates
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_api_keys_label ON api_keys(label)")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ingest_tokens_label ON ingest_tokens(label)")
@@ -332,3 +336,56 @@ def check_usage_duplicate(ingest_token_id: int, event_id: str) -> bool:
             WHERE ingest_token_id = ? AND event_id = ?
         """, (ingest_token_id, event_id))
         return c.fetchone()["count"] > 0
+
+def query_usage(start: str = None, end: str = None, model: str = None, limit: int = 5000, offset: int = 0) -> list:
+    """Query usage_log with optional filters and pagination.
+    
+    Args:
+        start: Start timestamp (ISO-8601 UTC) for filtering (inclusive)
+        end: End timestamp (ISO-8601 UTC) for filtering (inclusive)  
+        model: Exact model name to filter by
+        limit: Maximum number of rows to return (default: 5000)
+        offset: Number of rows to skip (default: 0)
+        
+    Returns:
+        list: List of usage dictionaries matching the filters
+    """
+    sql = """
+        SELECT id, timestamp, model, promptTokens, completionTokens, totalTokens, estimatedCostUSD
+        FROM usage_log WHERE 1=1
+    """
+    params = []
+    
+    if start:
+        sql += " AND timestamp >= ?"
+        params.append(start)
+    if end:
+        sql += " AND timestamp <= ?"
+        params.append(end)
+    if model:
+        sql += " AND model = ?"
+        params.append(model)
+        
+    sql += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+    params.extend([int(limit), int(offset)])
+    
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute(sql, params)
+        return [dict(row) for row in c.fetchall()]
+
+def list_models() -> list:
+    """Get all distinct model names from usage_log.
+    
+    Returns:
+        list: Sorted list of model names
+    """
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT DISTINCT model 
+            FROM usage_log 
+            WHERE model IS NOT NULL 
+            ORDER BY model ASC
+        """)
+        return [row[0] for row in c.fetchall()]
