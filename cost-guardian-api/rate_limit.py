@@ -10,6 +10,11 @@ _burst: int = 60
 _regen_rate: float = 1.0  # tokens per second
 _exempt_paths: list = []
 
+# Ingest-specific rate limits
+_ingest_rpm: int = 60
+_ingest_burst: int = 60
+_ingest_regen_rate: float = 1.0
+
 def init_limit(rpm: int, burst: int, exempt_paths: list = None) -> None:
     """Initialize the rate limiter with the given parameters.
     
@@ -25,6 +30,19 @@ def init_limit(rpm: int, burst: int, exempt_paths: list = None) -> None:
     _regen_rate = rpm / 60.0  # Convert RPM to tokens per second
     _exempt_paths = exempt_paths or []
     _buckets = {}  # Reset buckets on init
+
+def init_ingest_limit(rpm: int, burst: int) -> None:
+    """Initialize ingest-specific rate limits.
+    
+    Args:
+        rpm: Requests per minute allowed for ingest endpoints
+        burst: Maximum burst capacity for ingest endpoints
+    """
+    global _ingest_rpm, _ingest_burst, _ingest_regen_rate
+    
+    _ingest_rpm = rpm
+    _ingest_burst = burst
+    _ingest_regen_rate = rpm / 60.0  # Convert RPM to tokens per second
 
 def check_rate_limit(key: str, now_ms: int = None) -> Tuple[bool, int, float]:
     """Check if a request should be rate limited using token bucket algorithm.
@@ -42,10 +60,18 @@ def check_rate_limit(key: str, now_ms: int = None) -> Tuple[bool, int, float]:
     if now_ms is None:
         now_ms = int(time.monotonic() * 1000)
     
+    # Determine which rate limits to use based on key
+    if key.startswith("ingest:"):
+        burst = _ingest_burst
+        regen_rate = _ingest_regen_rate
+    else:
+        burst = _burst
+        regen_rate = _regen_rate
+    
     # Get or create bucket for this key
     if key not in _buckets:
         _buckets[key] = {
-            'tokens': float(_burst),  # Start with full bucket
+            'tokens': float(burst),  # Start with full bucket
             'last_ms': now_ms
         }
     
@@ -56,8 +82,8 @@ def check_rate_limit(key: str, now_ms: int = None) -> Tuple[bool, int, float]:
     elapsed_sec = elapsed_ms / 1000.0
     
     # Refill tokens based on elapsed time
-    tokens_to_add = elapsed_sec * _regen_rate
-    bucket['tokens'] = min(_burst, bucket['tokens'] + tokens_to_add)
+    tokens_to_add = elapsed_sec * regen_rate
+    bucket['tokens'] = min(burst, bucket['tokens'] + tokens_to_add)
     bucket['last_ms'] = now_ms
     
     # Check if we have enough tokens for this request
@@ -68,7 +94,7 @@ def check_rate_limit(key: str, now_ms: int = None) -> Tuple[bool, int, float]:
     else:
         # Rate limited - calculate when enough tokens will be available
         tokens_needed = 1.0 - bucket['tokens']
-        deficit_seconds = tokens_needed / _regen_rate
+        deficit_seconds = tokens_needed / regen_rate
         retry_after = max(1, math.ceil(deficit_seconds))
         
         return False, retry_after, bucket['tokens']
@@ -100,7 +126,12 @@ def get_config() -> dict:
         'rpm': _rpm,
         'burst': _burst,
         'regen_rate': _regen_rate,
-        'exempt_paths': _exempt_paths.copy()
+        'exempt_paths': _exempt_paths.copy(),
+        'ingest': {
+            'rpm': _ingest_rpm,
+            'burst': _ingest_burst,
+            'regen_rate': _ingest_regen_rate
+        }
     }
 
 def get_bucket_stats() -> Dict[str, Dict[str, Any]]:

@@ -11,6 +11,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Run single probe**: `python worker.py --once` (one-time usage check)
 - **Database migration**: Automatically runs at startup; manually via `python -c "from db import migrate; migrate()"`
 - **Kill orphan Flask process**: `lsof -ti :5001 | xargs kill -9` (macOS)
+- **Docker development**: `docker-compose up -d` (runs both API and worker)
+- **Generate master key**: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
 
 ### Environment Setup
 Copy `.env.example` to `.env` and configure with your values:
@@ -18,14 +20,25 @@ Copy `.env.example` to `.env` and configure with your values:
 cp .env.example .env
 ```
 
+**CRITICAL**: Must configure `MASTER_KEY` for encrypted API key storage:
+```
+# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+MASTER_KEY=your_32_byte_fernet_key_here
+```
+
 Required environment variables:
 ```
-OPENAI_API_KEY=your-openai-api-key-here
+# Encryption (CRITICAL - backup securely!)
+MASTER_KEY=your_32_byte_fernet_key_here
+
+# OpenAI settings (API keys now managed via dashboard)
 OPENAI_MODEL=gpt-4o-mini-2024-07-18
 PROBE_INTERVAL_SECS=300
+HEARTBEAT_PROMPT=ping
+
+# Server config
 SERVER_PORT=5001
 DB_FILENAME=cost_guardian.db
-HEARTBEAT_PROMPT=ping
 
 # Environment: development | production
 ENV=development
@@ -34,8 +47,16 @@ ENV=development
 ALLOWED_ORIGINS=http://127.0.0.1:5001,http://localhost:5001
 
 # Auth config (leave API_KEY empty to disable)
-API_KEY=your_secret_api_key_here
+API_KEY=your_secret_admin_key_here
 DASHBOARD_PUBLIC=true
+
+# Rate limiting (optional)
+RATE_LIMIT_RPM=60
+RATE_LIMIT_BURST=60
+RATE_LIMIT_EXEMPT=/ping,/dashboard,/health
+
+# Provider (currently only 'openai' supported)
+PROVIDER=openai
 ```
 
 Ensure `.gitignore` includes: `.env`, `venv/`, `__pycache__/`, `*.db`, `.DS_Store`
@@ -57,26 +78,40 @@ Ensure `.gitignore` includes: `.env`, `venv/`, `__pycache__/`, `*.db`, `.DS_Stor
 ### Core Components
 - **Flask API Server** (`app.py`): REST API with CORS enabled, serves dashboard and provides data endpoints
 - **Background Worker** (`worker.py`): Periodically probes OpenAI API to track token usage and costs
-- **Database Layer** (`db.py`): SQLite operations with automatic connection cleanup
+- **Database Layer** (`db.py`): SQLite operations with automatic connection cleanup and migration support
 - **Cost Calculator** (`calc.py`): Computes estimated costs based on token usage rates
 - **Configuration** (`config.py`): Environment variable management with defaults
+- **Encryption Module** (`crypto.py`): Fernet symmetric encryption for secure API key storage
+- **Rate Limiter** (`rate_limit.py`): Token bucket algorithm for per-key rate limiting
+- **Metrics Collection** (`metrics.py`): Simple counters and system health monitoring
 
 ### Data Flow
-1. Worker sends heartbeat requests to OpenAI API at configured intervals
-2. Usage data (tokens, costs) is parsed and stored in SQLite database via `insert_usage()`
-3. Flask API serves this data through REST endpoints for dashboard consumption
-4. HTML dashboard displays real-time usage statistics with reset functionality
+1. API keys are added via dashboard UI and encrypted with `MASTER_KEY` before database storage
+2. Worker probes all active API keys at configured intervals, rotating through them
+3. Usage data (tokens, costs) is parsed and stored in SQLite database via `insert_usage()`
+4. Flask API serves this data through REST endpoints for dashboard consumption
+5. HTML dashboard displays real-time usage statistics with per-key attribution and management controls
 
 ### Database Schema
-Single table `usage_log` with fields:
-- `id` (primary key), `timestamp`, `model`, `promptTokens`, `completionTokens`, `totalTokens`, `estimatedCostUSD`
+- `usage_log`: usage tracking with `id`, `timestamp`, `model`, `promptTokens`, `completionTokens`, `totalTokens`, `estimatedCostUSD`, `api_key_id` (foreign key)
+- `api_keys`: encrypted key management with `id`, `label`, `key_hash`, `encrypted_key`, `active`, `created_at`, `last_ok_at`
 
 ### API Endpoints
-- `GET /ping` - Health check (public)
-- `GET /data` - Retrieve all usage logs (protected)
-- `POST /log` - Manually log usage data (protected, for external clients; worker uses direct DB insertion)
-- `DELETE /reset` - Clear all usage logs (protected)
-- `GET /dashboard` - Serve HTML dashboard (configurable protection)
+
+#### Public Endpoints
+- `GET /ping` - Health check
+- `GET /dashboard` - Web dashboard (configurable protection via DASHBOARD_PUBLIC)
+
+#### Protected Endpoints (require X-API-Key header)
+- `GET /data` - Retrieve all usage logs
+- `GET /keys` - List managed API keys (encrypted values masked)
+- `POST /keys` - Add new OpenAI API key with label
+- `PATCH /keys/<id>/active` - Toggle API key active/inactive status  
+- `DELETE /keys/<id>` - Remove API key from management
+- `POST /keys/<id>/probe` - Test specific API key validity
+- `POST /log` - Manually log usage data (external clients; worker uses direct DB insertion)
+- `DELETE /reset` - Clear all usage logs
+- `GET /metrics` - System metrics and health status
 
 ### Key Patterns
 - Database connections use context managers (`with get_conn() as conn`) for automatic cleanup
@@ -88,6 +123,10 @@ Single table `usage_log` with fields:
 - Consistent JSON error responses with `json_error()` helper function
 - CORS configuration: restrictive with `ALLOWED_ORIGINS` in production, wide open in development
 - Cost calculation with configurable rates in `calc.py` (currently hardcoded for gpt-4o-mini pricing)
+- **Encryption**: All API keys encrypted with Fernet before storage, plaintext never persisted
+- **Rate Limiting**: Token bucket algorithm per API key, configurable RPM/burst with path exemptions
+- **Multi-Key Management**: Support for multiple labeled OpenAI keys with individual health tracking
+- **Metrics**: Simple counters exposed via `/metrics` endpoint for monitoring integrations
 
 ### Security & Production Notes
 - **API Key Auth**: Simple header-based authentication (`X-API-Key`)
@@ -95,11 +134,17 @@ Single table `usage_log` with fields:
 - **Error responses**: Full tracebacks conditional on `DEBUG` flag (auto-determined from `ENV` setting)
 - **Environment**: Ensure `.env` file security and never commit API keys to version control
 - **Auth bypass**: If `API_KEY` is empty, endpoints remain unprotected (logged as warnings)
-- **Production checklist**: Set `ENV=production`, configure `ALLOWED_ORIGINS`, set strong `API_KEY`
+- **Encryption Security**: `MASTER_KEY` is critical - if lost, all stored API keys become unrecoverable
+- **Rate Limiting**: Per-key token bucket prevents abuse, with configurable limits and exemptions
+- **Production checklist**: Set `ENV=production`, configure `ALLOWED_ORIGINS`, set strong `API_KEY`, backup `MASTER_KEY` securely
 
 ### Development Patterns
 - Use context managers for database operations to ensure proper connection cleanup
 - All Flask routes use consistent error handling with `json_error()` helper
 - Worker uses direct database insertion via `insert_usage()`, API `/log` endpoint for external clients
-- Dashboard HTML template supports both authenticated and public access modes
+- Dashboard HTML template supports both authenticated and public access modes with per-key management
 - Cost rates in `calc.py` should be updated when OpenAI pricing changes
+- **Encryption**: Always use `crypto.encrypt_key()` before storing API keys, `crypto.decrypt_key()` when retrieving
+- **Rate Limiting**: Initialize with `rate_limit.init_limit()` at startup, check with `rate_limit.check_rate_limit()`
+- **Multi-Key Support**: Worker rotates through active keys, dashboard provides per-key usage attribution
+- **Docker**: Use `docker-compose` for development, includes both web server and background worker services
