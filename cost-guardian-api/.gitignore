@@ -34,4 +34,4 @@ Thumbs.db
 logs/
 
 # Docker
-.dockerignore
+.dockerignoreCLAUDE.md
