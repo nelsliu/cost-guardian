@@ -4,7 +4,7 @@ import logging
 import requests # pyright: ignore[reportMissingModuleSource]
 from datetime import datetime, timezone
 
-from config import OPENAI_MODEL, PROBE_INTERVAL_SECS, HEARTBEAT_PROMPT, MASTER_KEY
+from config import OPENAI_MODEL, PROBE_INTERVAL_SECS, HEARTBEAT_PROMPT, MASTER_KEY, WORKER_HEARTBEAT_ENABLED, ENV
 from db import migrate, insert_usage, list_active_keys, update_key_last_ok
 from calc import compute_cost
 from crypto import decrypt_key
@@ -64,7 +64,7 @@ def probe_single_key(api_key: str, key_id: int, label: str) -> dict:
         "totalTokens": int(usage.get("total_tokens", 0) or 0),
         "estimatedCostUSD": float(compute_cost(usage)),
     }
-    insert_usage(row, api_key_id=key_id)
+    insert_usage(row, api_key_id=key_id, source='probe')
     
     # Update last successful probe time
     update_key_last_ok(key_id, row["timestamp"])
@@ -74,6 +74,15 @@ def probe_single_key(api_key: str, key_id: int, label: str) -> dict:
 
 def probe_once():
     """Probe OpenAI using all active API keys and log usage for each."""
+    if not WORKER_HEARTBEAT_ENABLED:
+        logging.info("Worker heartbeat disabled (WORKER_HEARTBEAT_ENABLED=false) - skipping probe")
+        return []
+    
+    # Production warning
+    if ENV == "production":
+        logging.warning("🚨 WORKER HEARTBEAT ENABLED IN PRODUCTION 🚨 - Consider using client-push ingestion instead")
+        logging.warning("Set WORKER_HEARTBEAT_ENABLED=false to disable background probing in production")
+    
     if not MASTER_KEY:
         logging.warning("MASTER_KEY not configured - skipping all key probes")
         return []
@@ -85,7 +94,7 @@ def probe_once():
         logging.info("No active API keys found - nothing to probe")
         return []
     
-    logging.info("Probing %d active API key(s)", len(active_keys))
+    logging.info("Probing %d active API key(s) (heartbeat mode)", len(active_keys))
     results = []
     
     for key_data in active_keys:
@@ -110,11 +119,22 @@ def probe_once():
             logging.exception("Probe failed for key %s (%s)", key_data['id'], key_data['label'])
             continue
     
-    logging.info("Completed probing %d keys, %d successful", len(active_keys), len(results))
+    logging.info("Completed probing %d keys, %d successful (heartbeat mode)", len(active_keys), len(results))
     return results
 
 def loop():
-    logging.info("Cost Guardian worker started | interval=%ss | model=%s | multi-key=enabled",
+    if not WORKER_HEARTBEAT_ENABLED:
+        logging.info("Cost Guardian worker: heartbeat disabled (WORKER_HEARTBEAT_ENABLED=false)")
+        logging.info("Worker will exit. Use client-push ingestion via POST /ingest instead")
+        return
+    
+    # Production warning for loop mode
+    if ENV == "production":
+        logging.warning("🚨 WORKER HEARTBEAT LOOP ENABLED IN PRODUCTION 🚨")
+        logging.warning("This should typically be disabled in production environments")
+        logging.warning("Consider using client-push ingestion instead of background probing")
+    
+    logging.info("Cost Guardian worker started | heartbeat=enabled | interval=%ss | model=%s | multi-key=enabled",
                  PROBE_INTERVAL_SECS, OPENAI_MODEL)
     while True:
         try:

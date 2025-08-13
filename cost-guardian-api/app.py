@@ -1,26 +1,35 @@
 from flask import Flask, request, jsonify, render_template, g
 from flask_cors import CORS
-import logging, uuid, time, sqlite3, traceback
+import logging, uuid, time, sqlite3, traceback, secrets
 from functools import wraps
+from datetime import datetime, timezone
 
-from config import DB_PATH, SERVER_PORT, API_KEY, DASHBOARD_PUBLIC, ENV, DEBUG, ALLOWED_ORIGINS, MASTER_KEY, RATE_LIMIT_RPM, RATE_LIMIT_BURST, RATE_LIMIT_EXEMPT, PROBE_INTERVAL_SECS
-from db import migrate, add_api_key, list_api_keys, set_api_key_active, delete_api_key
+from config import DB_PATH, SERVER_PORT, API_KEY, DASHBOARD_PUBLIC, ENV, DEBUG, ALLOWED_ORIGINS, MASTER_KEY, RATE_LIMIT_RPM, RATE_LIMIT_BURST, RATE_LIMIT_EXEMPT, PROBE_INTERVAL_SECS, INGEST_KEY, INGEST_RPM, INGEST_BURST, WORKER_HEARTBEAT_ENABLED, TRACKING_TOKEN_LENGTH
+from db import migrate, add_api_key, list_api_keys, set_api_key_active, delete_api_key, insert_usage, get_tracking_token_by_token, touch_tracking_token_last_seen, check_usage_duplicate, create_tracking_token, list_tracking_tokens, set_tracking_token_active, delete_tracking_token
 from crypto import encrypt_key, decrypt_key
 from worker import probe_single_key
-from rate_limit import init_limit, check_rate_limit, is_exempt_path
-from metrics import increment_rate_limit_hits
+from rate_limit import init_limit, init_ingest_limit, check_rate_limit, is_exempt_path
+from metrics import increment_rate_limit_hits, increment_ingest_success, increment_ingest_duplicate, increment_ingest_bad_auth, increment_ingest_validation_error
 
 app = Flask(__name__)
 
-# CORS setup
+# Security: Set maximum content length to 1MB to prevent abuse
+app.config['MAX_CONTENT_LENGTH'] = 1 * 1024 * 1024  # 1MB
+
+# CORS setup - exclude /ingest (server-to-server only)
 if ALLOWED_ORIGINS:
-    CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}},
-         supports_credentials=False,
-         methods=["GET","POST","DELETE","OPTIONS"],
-         allow_headers=["Content-Type","X-API-Key"])
+    CORS(app, resources={
+             r"/(?!ingest).*": {  # Exclude /ingest from CORS
+                 "origins": ALLOWED_ORIGINS,
+                 "supports_credentials": False,
+                 "methods": ["GET","POST","DELETE","OPTIONS"],
+                 "allow_headers": ["Content-Type","X-API-Key"]
+             }
+         })
 else:
-    CORS(app)
-    logging.warning("ALLOWED_ORIGINS not set—CORS is wide open (dev mode)")
+    # In development, still exclude /ingest from CORS
+    CORS(app, resources={r"/(?!ingest).*": {}})
+    logging.warning("ALLOWED_ORIGINS not set—CORS is wide open for non-ingest endpoints (dev mode)")
 
 # --- Auth middleware ---
 
@@ -185,6 +194,10 @@ def get_system_metrics():
             cursor.execute("SELECT COUNT(*) as count FROM api_keys WHERE active=1")
             active_keys = cursor.fetchone()["count"]
             
+            # Active tracking tokens count
+            cursor.execute("SELECT COUNT(*) as count FROM ingest_tokens WHERE active=1")
+            active_tokens = cursor.fetchone()["count"]
+            
             # Last usage timestamp
             cursor.execute("SELECT MAX(timestamp) as last_timestamp FROM usage_log")
             last_usage_raw = cursor.fetchone()["last_timestamp"]
@@ -192,10 +205,26 @@ def get_system_metrics():
             # Last key OK timestamp
             cursor.execute("SELECT MAX(last_ok) as last_ok FROM api_keys WHERE last_ok IS NOT NULL")
             last_key_ok_raw = cursor.fetchone()["last_ok"]
+            
+            # Last ingest token seen timestamp
+            cursor.execute("SELECT MAX(last_seen_at) as last_seen FROM ingest_tokens WHERE last_seen_at IS NOT NULL")
+            last_token_seen_raw = cursor.fetchone()["last_seen"]
+            
+            # Token activity health indicators (1m/5m/1h)
+            cursor.execute("""
+                SELECT 
+                    COUNT(CASE WHEN datetime(last_seen_at) > datetime('now', '-1 minute') THEN 1 END) as seen_1m,
+                    COUNT(CASE WHEN datetime(last_seen_at) > datetime('now', '-5 minute') THEN 1 END) as seen_5m,
+                    COUNT(CASE WHEN datetime(last_seen_at) > datetime('now', '-1 hour') THEN 1 END) as seen_1h
+                FROM ingest_tokens 
+                WHERE last_seen_at IS NOT NULL
+            """)
+            token_activity = cursor.fetchone()
         
         # Format timestamps
         last_usage_at = last_usage_raw if last_usage_raw else None
         last_key_ok_at = last_key_ok_raw if last_key_ok_raw else None
+        last_token_seen_at = last_token_seen_raw if last_token_seen_raw else None
         
         # Worker health logic: healthy if either timestamp is within 2 * PROBE_INTERVAL_SECS
         now = datetime.now(timezone.utc)
@@ -228,16 +257,30 @@ def get_system_metrics():
             "env": ENV,
             "debug": DEBUG,
             "rate_limit": rate_limit_config,
+            "ingest": {
+                "rpm": INGEST_RPM,
+                "burst": INGEST_BURST,
+                "auth_enabled": bool(INGEST_KEY),
+                "tracking_token_length": TRACKING_TOKEN_LENGTH
+            },
             "counters": counters,
             "db": {
                 "usage_rows": usage_rows,
                 "active_keys": active_keys,
+                "active_tokens": active_tokens,
                 "last_usage_at": last_usage_at,
-                "last_key_ok_at": last_key_ok_at
+                "last_key_ok_at": last_key_ok_at,
+                "last_token_seen_at": last_token_seen_at
             },
             "worker": {
+                "enabled": WORKER_HEARTBEAT_ENABLED,
                 "probe_interval_secs": PROBE_INTERVAL_SECS,
                 "healthy": worker_healthy
+            },
+            "ingestion_health": {
+                "tokens_seen_1m": token_activity["seen_1m"],
+                "tokens_seen_5m": token_activity["seen_5m"], 
+                "tokens_seen_1h": token_activity["seen_1h"]
             }
         }
         
@@ -277,24 +320,32 @@ def get_data():
 @app.route('/log', methods=['POST'])
 @require_api_key
 def log_data():
+    """DEPRECATED: Legacy endpoint for logging usage data. Use POST /ingest with tracking tokens instead."""
     try:
+        # Log deprecation warning
+        logging.warning("[%s] DEPRECATED: /log endpoint used - consider migrating to POST /ingest with tracking tokens", 
+                       g.get('req_id', '-'))
+        
         data = request.json
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO usage_log (timestamp, model, promptTokens, completionTokens, totalTokens, estimatedCostUSD)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            data.get('timestamp'),
-            data.get('model'),
-            data.get('promptTokens'),
-            data.get('completionTokens'),
-            data.get('totalTokens'),
-            data.get('estimatedCostUSD')
-        ))
-        conn.commit()
-        conn.close()
-        return jsonify({"message": "Data logged successfully"})
+        if not data:
+            return json_error(400, "JSON body required")
+        
+        # Use the new insert_usage function with source='probe' for backward compatibility
+        usage_row = {
+            "timestamp": data.get('timestamp'),
+            "model": data.get('model'), 
+            "promptTokens": data.get('promptTokens', 0),
+            "completionTokens": data.get('completionTokens', 0),
+            "totalTokens": data.get('totalTokens', 0),
+            "estimatedCostUSD": data.get('estimatedCostUSD', 0.0)
+        }
+        
+        insert_usage(usage_row, source='probe')  # Mark as probe for backward compatibility
+        
+        return jsonify({
+            "message": "Data logged successfully",
+            "warning": "DEPRECATED: This endpoint is deprecated. Please migrate to POST /ingest with tracking tokens."
+        })
     except Exception:
         logging.exception("[%s] Error occurred in /log route", g.get('req_id', '-'))
         if DEBUG:
@@ -507,6 +558,286 @@ def probe_key_now(key_id):
         else:
             return json_error(500, "Internal server error")
 
+@app.route('/ingest', methods=['POST'])
+def ingest_usage():
+    """Server-to-server endpoint for ingesting OpenAI usage data with tracking token attribution."""
+    try:
+        # 1. Auth FIRST - check X-Ingest-Key before any other processing
+        ingest_key = request.headers.get('X-Ingest-Key')
+        if not INGEST_KEY:
+            logging.warning("[%s] INGEST_KEY not configured - /ingest endpoint accessible without auth", g.get('req_id', '-'))
+            increment_ingest_bad_auth()
+            return json_error(500, "Ingest authentication not configured")
+        
+        if not ingest_key or ingest_key != INGEST_KEY:
+            logging.warning("[%s] Invalid or missing X-Ingest-Key for /ingest", g.get('req_id', '-'))
+            increment_ingest_bad_auth()
+            return json_error(401, "Invalid or missing X-Ingest-Key")
+        
+        # 2. Validate JSON payload
+        if not request.is_json:
+            increment_ingest_validation_error()
+            return json_error(400, "Content-Type must be application/json")
+        
+        data = request.get_json()
+        if not data:
+            increment_ingest_validation_error()
+            return json_error(400, "JSON body required")
+        
+        # 3. Extract and validate tracking token
+        tracking_token = data.get('tracking_token', '').strip()
+        if not tracking_token:
+            increment_ingest_validation_error()
+            return json_error(400, "tracking_token is required")
+        
+        # Resolve tracking token -> token data
+        token_data = get_tracking_token_by_token(tracking_token)
+        if not token_data:
+            increment_ingest_validation_error()
+            return json_error(404, "Unknown tracking token")
+        
+        if not token_data['active']:
+            increment_ingest_validation_error()
+            return json_error(403, "Tracking token is inactive")
+        
+        # 4. Rate limiting with per-token buckets
+        limiter_key = f"ingest:{tracking_token}"
+        allowed, retry_after, remaining = check_rate_limit(limiter_key)
+        
+        if not allowed:
+            increment_rate_limit_hits()
+            logging.warning("[%s] Rate limit exceeded for tracking token %s", 
+                           g.get('req_id', '-'), mask_tracking_token(tracking_token))
+            resp = json_error(429, "Rate limit exceeded")
+            resp[0].headers["Retry-After"] = str(retry_after)
+            return resp
+        
+        # 5. Payload normalization and validation
+        # Normalize camelCase to snake_case
+        normalized_data = {}
+        field_mapping = {
+            'promptTokens': 'prompt_tokens',
+            'completionTokens': 'completion_tokens', 
+            'totalTokens': 'total_tokens',
+            'costUsd': 'cost_usd'
+        }
+        
+        for key, value in data.items():
+            if key in field_mapping:
+                normalized_data[field_mapping[key]] = value
+            else:
+                normalized_data[key] = value
+        
+        # Extract and validate required fields
+        event_id = normalized_data.get('event_id')
+        provider = normalized_data.get('provider', 'openai')
+        model = normalized_data.get('model', '').strip()
+        prompt_tokens = normalized_data.get('prompt_tokens', 0)
+        completion_tokens = normalized_data.get('completion_tokens', 0) 
+        total_tokens = normalized_data.get('total_tokens')
+        cost_usd = normalized_data.get('cost_usd', 0.0)
+        meta = normalized_data.get('meta', {})
+        
+        # Validation
+        if not model:
+            increment_ingest_validation_error()
+            return json_error(400, "model is required")
+        
+        try:
+            prompt_tokens = int(prompt_tokens)
+            completion_tokens = int(completion_tokens) 
+            if prompt_tokens < 0 or completion_tokens < 0:
+                raise ValueError("Token counts cannot be negative")
+        except (ValueError, TypeError):
+            increment_ingest_validation_error()
+            return json_error(400, "prompt_tokens and completion_tokens must be non-negative integers")
+        
+        # Compute total_tokens if missing
+        if total_tokens is None:
+            total_tokens = prompt_tokens + completion_tokens
+        else:
+            try:
+                total_tokens = int(total_tokens)
+                if total_tokens < 0:
+                    raise ValueError("Total tokens cannot be negative")
+            except (ValueError, TypeError):
+                increment_ingest_validation_error()
+                return json_error(400, "total_tokens must be a non-negative integer")
+        
+        # Validate cost_usd
+        try:
+            cost_usd = float(cost_usd)
+        except (ValueError, TypeError):
+            increment_ingest_validation_error()
+            return json_error(400, "cost_usd must be a number")
+        
+        # Handle timestamp - use server time if missing
+        timestamp = normalized_data.get('timestamp')
+        if not timestamp:
+            timestamp = datetime.now(timezone.utc).isoformat(timespec='seconds')
+        
+        # 6. Check for idempotency if event_id provided
+        if event_id:
+            if check_usage_duplicate(token_data['id'], event_id):
+                increment_ingest_duplicate()
+                return jsonify({"duplicate": True}), 200
+        
+        # 7. Insert usage data
+        usage_row = {
+            "timestamp": timestamp,
+            "model": model,
+            "promptTokens": prompt_tokens,
+            "completionTokens": completion_tokens,
+            "totalTokens": total_tokens,
+            "estimatedCostUSD": cost_usd
+        }
+        
+        row_id = insert_usage(usage_row, 
+                             ingest_token_id=token_data['id'], 
+                             source='ingest', 
+                             event_id=event_id)
+        
+        # 8. Update last_seen_at for the tracking token
+        touch_tracking_token_last_seen(token_data['id'], timestamp)
+        
+        # 9. Success metrics and response
+        increment_ingest_success()
+        logging.info("[%s] Successfully ingested usage for token %s: %s tokens, $%s", 
+                    g.get('req_id', '-'), mask_tracking_token(tracking_token), 
+                    total_tokens, cost_usd)
+        
+        return jsonify({"ok": True, "id": row_id}), 201
+        
+    except Exception:
+        logging.exception("[%s] Error occurred in /ingest route", g.get('req_id', '-'))
+        increment_ingest_validation_error()
+        if DEBUG:
+            return jsonify({"error": traceback.format_exc()}), 500
+        else:
+            return json_error(500, "Internal server error")
+
+def mask_tracking_token(token: str) -> str:
+    """Create a masked version of a tracking token showing first 4 and last 4 characters."""
+    if len(token) <= 8:
+        return 'tok_••••'
+    return f"tok_{token[:4]}…{token[-4:]}"
+
+def mask_ingest_key(key: str) -> str:
+    """Create a masked version of an ingest key for logging."""
+    if len(key) <= 8:
+        return 'key_••••'
+    return f"key_{key[:4]}…{key[-4:]}"
+
+# Tracking token management endpoints
+
+@app.route('/ingest/tokens', methods=['GET'])
+@require_api_key
+def get_tracking_tokens():
+    """List all tracking tokens with metadata and usage counts."""
+    try:
+        tokens = list_tracking_tokens()
+        
+        # Mask the tokens for security
+        for token in tokens:
+            token['token_masked'] = mask_tracking_token(token['token'])
+            # Keep the full token for copy functionality in the UI
+            # token['token'] remains unmasked for admin UI copy buttons
+        
+        return jsonify({"tokens": tokens})
+    except Exception:
+        logging.exception("[%s] Error occurred in GET /ingest/tokens route", g.get('req_id', '-'))
+        if DEBUG:
+            return jsonify({"error": traceback.format_exc()}), 500
+        else:
+            return json_error(500, "Internal server error")
+
+@app.route('/ingest/tokens', methods=['POST'])
+@require_api_key
+def create_tracking_token_endpoint():
+    """Create a new tracking token."""
+    try:
+        data = request.json
+        if not data:
+            return json_error(400, "JSON body required")
+        
+        label = data.get('label', '').strip()
+        
+        # Validation
+        if not label or len(label) > 64:
+            return json_error(400, "Label must be 1-64 characters")
+        
+        # Check tracking token length bounds
+        if TRACKING_TOKEN_LENGTH < 16 or TRACKING_TOKEN_LENGTH > 40:
+            logging.error("[%s] Invalid TRACKING_TOKEN_LENGTH %s (must be 16-40)", 
+                         g.get('req_id', '-'), TRACKING_TOKEN_LENGTH)
+            return json_error(500, "Invalid tracking token length configuration")
+        
+        # Generate a unique token
+        token = secrets.token_urlsafe(TRACKING_TOKEN_LENGTH)
+        
+        # Store in database
+        try:
+            result = create_tracking_token(label, token)
+        except sqlite3.IntegrityError as e:
+            if "UNIQUE constraint failed: ingest_tokens.label" in str(e):
+                return json_error(400, f"Label '{label}' already exists")
+            elif "UNIQUE constraint failed: ingest_tokens.token" in str(e):
+                # Extremely unlikely but handle token collision
+                return json_error(500, "Token generation collision, please retry")
+            raise
+        
+        logging.info("[%s] Created new tracking token with ID %s and label '%s'", 
+                    g.get('req_id', '-'), result['id'], label)
+        return jsonify(result), 201
+        
+    except Exception:
+        logging.exception("[%s] Error occurred in POST /ingest/tokens route", g.get('req_id', '-'))
+        if DEBUG:
+            return jsonify({"error": traceback.format_exc()}), 500
+        else:
+            return json_error(500, "Internal server error")
+
+@app.route('/ingest/tokens/<int:token_id>/active', methods=['PATCH'])
+@require_api_key
+def toggle_tracking_token_active(token_id):
+    """Toggle the active status of a tracking token."""
+    try:
+        data = request.json
+        if not data or 'active' not in data:
+            return json_error(400, "JSON body with 'active' field required")
+        
+        active = bool(data['active'])
+        set_tracking_token_active(token_id, active)
+        
+        logging.info("[%s] Set tracking token %s active status to %s", 
+                    g.get('req_id', '-'), token_id, active)
+        return jsonify({"ok": True})
+        
+    except Exception:
+        logging.exception("[%s] Error occurred in PATCH /ingest/tokens/%s/active route", 
+                         g.get('req_id', '-'), token_id)
+        if DEBUG:
+            return jsonify({"error": traceback.format_exc()}), 500
+        else:
+            return json_error(500, "Internal server error")
+
+@app.route('/ingest/tokens/<int:token_id>', methods=['DELETE'])
+@require_api_key
+def remove_tracking_token(token_id):
+    """Delete a tracking token."""
+    try:
+        delete_tracking_token(token_id)
+        logging.info("[%s] Deleted tracking token %s", g.get('req_id', '-'), token_id)
+        return jsonify({"ok": True})
+        
+    except Exception:
+        logging.exception("[%s] Error occurred in DELETE /ingest/tokens/%s route", 
+                         g.get('req_id', '-'), token_id)
+        if DEBUG:
+            return jsonify({"error": traceback.format_exc()}), 500
+        else:
+            return json_error(500, "Internal server error")
+
 @app.route('/dashboard')
 def dashboard():
     # Apply auth if dashboard is not public
@@ -534,8 +865,11 @@ if __name__ == '__main__':
     
     # Initialize rate limiting
     init_limit(RATE_LIMIT_RPM, RATE_LIMIT_BURST, RATE_LIMIT_EXEMPT)
-    logging.info("Rate limiting initialized | RPM=%d | BURST=%d | EXEMPT=%s", 
+    init_ingest_limit(INGEST_RPM, INGEST_BURST)
+    logging.info("Rate limiting initialized | Admin RPM=%d | BURST=%d | EXEMPT=%s", 
                  RATE_LIMIT_RPM, RATE_LIMIT_BURST, ",".join(RATE_LIMIT_EXEMPT))
+    logging.info("Ingest rate limiting initialized | RPM=%d | BURST=%d", 
+                 INGEST_RPM, INGEST_BURST)
     
     # Warn if MASTER_KEY is not configured
     if not MASTER_KEY:

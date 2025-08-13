@@ -97,6 +97,160 @@
             display: none !important;
         }
         /* Auth status footer */
+        /* Tracking Tokens section styles */
+        .tracking-tokens-section {
+            background: #f0f8ff;
+            border: 1px solid #007cba;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin: 2rem 0;
+        }
+        .tracking-tokens-section h2 {
+            margin-top: 0;
+            color: #005a87;
+            font-size: 1.2rem;
+        }
+        .section-description {
+            color: #666;
+            font-size: 0.9rem;
+            margin: 0.5rem 0 1rem 0;
+            font-style: italic;
+        }
+        .add-token-form {
+            display: flex;
+            gap: 0.5rem;
+            align-items: flex-end;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        .add-token-form input[type="text"] {
+            flex: 1;
+            min-width: 200px;
+            padding: 0.5rem;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        .add-token-form input[type="text"]:focus {
+            outline: none;
+            border-color: #007cba;
+            box-shadow: 0 0 0 3px rgba(0, 124, 186, 0.1);
+        }
+        .tokens-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .token-item {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .token-info {
+            flex: 1;
+            min-width: 200px;
+        }
+        .token-label {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 0.25rem;
+        }
+        .token-value {
+            font-family: 'Courier New', monospace;
+            background: #f5f5f5;
+            padding: 0.25rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.8rem;
+            color: #666;
+            word-break: break-all;
+        }
+        .token-meta {
+            font-size: 0.8rem;
+            color: #888;
+            margin-top: 0.25rem;
+        }
+        .token-actions {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .token-status {
+            padding: 0.25rem 0.5rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .token-status.active {
+            background: #d4edda;
+            color: #155724;
+        }
+        .token-status.inactive {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .tokens-message {
+            padding: 0.75rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+        .tokens-message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .tokens-message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .no-tokens {
+            color: #666;
+            font-style: italic;
+            padding: 1rem;
+            text-align: center;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        .btn-primary, .btn-secondary, .btn-danger {
+            padding: 0.4rem 0.8rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: bold;
+            transition: background-color 0.2s;
+        }
+        .btn-primary {
+            background: #007cba;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #005a87;
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
         /* API Keys section styles */
         .keys-section {
             background: #f9f9f9;
@@ -296,6 +450,151 @@
             background: #ffebee;
             color: #d32f2f;
         }
+
+        /* Usage snippets modal styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+        .modal {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        .modal-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8f9fa;
+        }
+        .modal-header h3 {
+            margin: 0;
+            color: #333;
+            font-size: 1.3rem;
+        }
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #666;
+            padding: 0.5rem;
+            border-radius: 4px;
+        }
+        .modal-close:hover {
+            background: #e0e0e0;
+        }
+        .modal-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0;
+        }
+        .tab-buttons {
+            display: flex;
+            border-bottom: 1px solid #e0e0e0;
+            background: #f8f9fa;
+        }
+        .tab-button {
+            flex: 1;
+            padding: 1rem;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: bold;
+            color: #666;
+            transition: all 0.2s;
+            border-bottom: 3px solid transparent;
+        }
+        .tab-button:hover {
+            background: #e9ecef;
+        }
+        .tab-button.active {
+            color: #007cba;
+            border-bottom-color: #007cba;
+            background: white;
+        }
+        .tab-content {
+            display: none;
+            padding: 1.5rem;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .snippet-description {
+            margin-bottom: 1rem;
+            color: #666;
+            line-height: 1.4;
+        }
+        .code-block {
+            background: #f8f9fa;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 1rem;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            margin: 1rem 0;
+            position: relative;
+        }
+        .code-block pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .copy-code-btn {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            background: #007cba;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.8rem;
+            cursor: pointer;
+            opacity: 0.8;
+        }
+        .copy-code-btn:hover {
+            opacity: 1;
+            background: #005a87;
+        }
+        .snippet-notes {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 1rem;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+        }
+        .snippet-notes strong {
+            color: #1976d2;
+        }
+        .snippet-section {
+            margin-bottom: 2rem;
+        }
+        .snippet-section h4 {
+            color: #333;
+            margin-bottom: 0.5rem;
+            font-size: 1.1rem;
+        }
     </style>
 </head>
 <body>
@@ -327,11 +626,356 @@
         </div>
     </div>
 
+    <!-- Usage Snippets Modal -->
+    <div id="snippets-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>📝 Usage Examples</h3>
+                <button class="modal-close" onclick="closeSnippetsModal()">&times;</button>
+            </div>
+            <div class="modal-content">
+                <div class="tab-buttons">
+                    <button class="tab-button active" onclick="switchTab('curl')">cURL</button>
+                    <button class="tab-button" onclick="switchTab('python')">Python</button>
+                    <button class="tab-button" onclick="switchTab('nodejs')">Node.js</button>
+                </div>
+                
+                <div id="curl-tab" class="tab-content active">
+                    <div class="snippet-description">
+                        Send usage data to Cost Guardian using cURL from your command line or shell scripts.
+                    </div>
+                    
+                    <div class="snippet-section">
+                        <h4>Basic Usage</h4>
+                        <div class="code-block">
+                            <button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button>
+                            <pre id="curl-basic">curl -X POST "${window.location.origin}/ingest" \
+  -H "Content-Type: application/json" \
+  -H "X-Ingest-Key: YOUR_INGEST_KEY" \
+  -d '{
+    "tracking_token": "TRACKING_TOKEN",
+    "model": "gpt-4o-mini-2024-07-18",
+    "prompt_tokens": 100,
+    "completion_tokens": 50,
+    "cost_usd": 0.002250
+  }'</pre>
+                        </div>
+                    </div>
+
+                    <div class="snippet-section">
+                        <h4>With Event ID (Idempotency)</h4>
+                        <div class="code-block">
+                            <button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button>
+                            <pre id="curl-idempotent">curl -X POST "${window.location.origin}/ingest" \
+  -H "Content-Type: application/json" \
+  -H "X-Ingest-Key: YOUR_INGEST_KEY" \
+  -d '{
+    "tracking_token": "TRACKING_TOKEN",
+    "event_id": "unique-event-123",
+    "model": "gpt-4o-mini-2024-07-18",
+    "prompt_tokens": 100,
+    "completion_tokens": 50,
+    "total_tokens": 150,
+    "cost_usd": 0.002250,
+    "timestamp": "2024-01-15T10:30:00Z"
+  }'</pre>
+                        </div>
+                    </div>
+
+                    <div class="snippet-notes">
+                        <strong>Note:</strong> Replace <code>YOUR_INGEST_KEY</code> with your server's ingest key and <code>TRACKING_TOKEN</code> with the token for this project.
+                    </div>
+                </div>
+
+                <div id="python-tab" class="tab-content">
+                    <div class="snippet-description">
+                        Integrate Cost Guardian into your Python applications using the requests library.
+                    </div>
+                    
+                    <div class="snippet-section">
+                        <h4>Basic Integration</h4>
+                        <div class="code-block">
+                            <button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button>
+                            <pre id="python-basic">import requests
+import json
+from datetime import datetime, timezone
+
+def log_openai_usage(tracking_token, model, prompt_tokens, completion_tokens, cost_usd, event_id=None):
+    """Log OpenAI usage to Cost Guardian"""
+    
+    payload = {
+        "tracking_token": tracking_token,
+        "model": model,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "cost_usd": cost_usd,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    if event_id:
+        payload["event_id"] = event_id
+    
+    response = requests.post(
+        "${window.location.origin}/ingest",
+        headers={
+            "Content-Type": "application/json",
+            "X-Ingest-Key": "YOUR_INGEST_KEY"
+        },
+        json=payload
+    )
+    
+    if response.status_code == 201:
+        print("Usage logged successfully")
+    elif response.status_code == 200:
+        result = response.json()
+        if result.get("duplicate"):
+            print("Duplicate event ignored (idempotency)")
+    else:
+        print(f"Error logging usage: {response.status_code} - {response.text}")
+
+# Example usage
+log_openai_usage(
+    tracking_token="TRACKING_TOKEN",
+    model="gpt-4o-mini-2024-07-18",
+    prompt_tokens=100,
+    completion_tokens=50,
+    cost_usd=0.002250,
+    event_id="unique-event-123"  # Optional for idempotency
+)</pre>
+                        </div>
+                    </div>
+
+                    <div class="snippet-section">
+                        <h4>OpenAI Integration Example</h4>
+                        <div class="code-block">
+                            <button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button>
+                            <pre id="python-openai">import openai
+import requests
+from datetime import datetime, timezone
+
+# Configure OpenAI and Cost Guardian
+openai.api_key = "your-openai-api-key"
+COST_GUARDIAN_URL = "${window.location.origin}/ingest"
+INGEST_KEY = "YOUR_INGEST_KEY"
+TRACKING_TOKEN = "TRACKING_TOKEN"
+
+def chat_with_logging(messages, model="gpt-4o-mini-2024-07-18"):
+    """Make OpenAI chat completion and log usage to Cost Guardian"""
+    
+    # Make OpenAI request
+    response = openai.chat.completions.create(
+        model=model,
+        messages=messages
+    )
+    
+    # Extract usage information
+    usage = response.usage
+    
+    # Log to Cost Guardian
+    log_payload = {
+        "tracking_token": TRACKING_TOKEN,
+        "model": model,
+        "prompt_tokens": usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "total_tokens": usage.total_tokens,
+        "cost_usd": calculate_cost(usage, model),  # Implement your cost calculation
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event_id": response.id  # Use OpenAI response ID for idempotency
+    }
+    
+    requests.post(
+        COST_GUARDIAN_URL,
+        headers={
+            "Content-Type": "application/json",
+            "X-Ingest-Key": INGEST_KEY
+        },
+        json=log_payload
+    )
+    
+    return response
+
+def calculate_cost(usage, model):
+    """Calculate cost based on OpenAI pricing"""
+    # Example pricing for gpt-4o-mini-2024-07-18
+    prompt_cost_per_1k = 0.000150
+    completion_cost_per_1k = 0.000600
+    
+    prompt_cost = (usage.prompt_tokens / 1000) * prompt_cost_per_1k
+    completion_cost = (usage.completion_tokens / 1000) * completion_cost_per_1k
+    
+    return prompt_cost + completion_cost</pre>
+                        </div>
+                    </div>
+
+                    <div class="snippet-notes">
+                        <strong>Requirements:</strong> <code>pip install requests openai</code><br>
+                        <strong>Note:</strong> Update the cost calculation function with current OpenAI pricing for your models.
+                    </div>
+                </div>
+
+                <div id="nodejs-tab" class="tab-content">
+                    <div class="snippet-description">
+                        Integrate Cost Guardian into your Node.js applications using fetch or axios.
+                    </div>
+                    
+                    <div class="snippet-section">
+                        <h4>Basic Integration (Node.js 18+)</h4>
+                        <div class="code-block">
+                            <button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button>
+                            <pre id="nodejs-basic">async function logOpenAIUsage(trackingToken, model, promptTokens, completionTokens, costUsd, eventId = null) {
+  const payload = {
+    tracking_token: trackingToken,
+    model: model,
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    cost_usd: costUsd,
+    timestamp: new Date().toISOString()
+  };
+
+  if (eventId) {
+    payload.event_id = eventId;
+  }
+
+  try {
+    const response = await fetch("${window.location.origin}/ingest", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Ingest-Key": "YOUR_INGEST_KEY"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json();
+
+    if (response.status === 201) {
+      console.log("Usage logged successfully");
+    } else if (response.status === 200 && data.duplicate) {
+      console.log("Duplicate event ignored (idempotency)");
+    } else {
+      console.error(`Error logging usage: ${response.status}`, data);
+    }
+  } catch (error) {
+    console.error("Failed to log usage:", error);
+  }
+}
+
+// Example usage
+await logOpenAIUsage(
+  "TRACKING_TOKEN",
+  "gpt-4o-mini-2024-07-18",
+  100,
+  50,
+  0.002250,
+  "unique-event-123"  // Optional for idempotency
+);</pre>
+                        </div>
+                    </div>
+
+                    <div class="snippet-section">
+                        <h4>OpenAI Integration Example</h4>
+                        <div class="code-block">
+                            <button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button>
+                            <pre id="nodejs-openai">import OpenAI from 'openai';
+
+const openai = new OpenAI({
+  apiKey: 'your-openai-api-key'
+});
+
+const COST_GUARDIAN_URL = "${window.location.origin}/ingest";
+const INGEST_KEY = "YOUR_INGEST_KEY";
+const TRACKING_TOKEN = "TRACKING_TOKEN";
+
+async function chatWithLogging(messages, model = "gpt-4o-mini-2024-07-18") {
+  try {
+    // Make OpenAI request
+    const response = await openai.chat.completions.create({
+      model: model,
+      messages: messages
+    });
+
+    // Extract usage information
+    const usage = response.usage;
+
+    // Log to Cost Guardian
+    const logPayload = {
+      tracking_token: TRACKING_TOKEN,
+      model: model,
+      prompt_tokens: usage.prompt_tokens,
+      completion_tokens: usage.completion_tokens,
+      total_tokens: usage.total_tokens,
+      cost_usd: calculateCost(usage, model),
+      timestamp: new Date().toISOString(),
+      event_id: response.id  // Use OpenAI response ID for idempotency
+    };
+
+    await fetch(COST_GUARDIAN_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Ingest-Key": INGEST_KEY
+      },
+      body: JSON.stringify(logPayload)
+    });
+
+    return response;
+  } catch (error) {
+    console.error("Error in chat with logging:", error);
+    throw error;
+  }
+}
+
+function calculateCost(usage, model) {
+  // Example pricing for gpt-4o-mini-2024-07-18
+  const promptCostPer1k = 0.000150;
+  const completionCostPer1k = 0.000600;
+  
+  const promptCost = (usage.prompt_tokens / 1000) * promptCostPer1k;
+  const completionCost = (usage.completion_tokens / 1000) * completionCostPer1k;
+  
+  return promptCost + completionCost;
+}
+
+// Example usage
+const messages = [
+  { role: "user", content: "Hello, how are you?" }
+];
+
+const response = await chatWithLogging(messages);
+console.log(response.choices[0].message.content);</pre>
+                        </div>
+                    </div>
+
+                    <div class="snippet-notes">
+                        <strong>Requirements:</strong> <code>npm install openai</code><br>
+                        <strong>Note:</strong> For Node.js versions before 18, use <code>node-fetch</code> or <code>axios</code> instead of native fetch.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <h1>Cost Guardian Token Usage</h1>
     
     <!-- Loading/Status messages -->
     <div id="status-message" class="hidden"></div>
     
+    <!-- Tracking Tokens Management Section -->
+    <div class="tracking-tokens-section">
+        <h2>🏷️ Tracking Tokens</h2>
+        <p class="section-description">Manage tracking tokens for client-push ingestion. Each token allows client applications to send usage data to the /ingest endpoint.</p>
+        <div id="tokens-message" class="tokens-message hidden"></div>
+        
+        <form class="add-token-form" id="add-token-form">
+            <input type="text" name="label" placeholder="Token label (e.g., 'Production App')" required maxlength="64">
+            <button type="submit">Create Token</button>
+        </form>
+        
+        <div class="tokens-list" id="tokens-list">
+            <!-- Tokens will be populated here -->
+        </div>
+    </div>
+
     <!-- API Keys Management Section -->
     <div class="keys-section">
         <h2>API Keys</h2>
@@ -930,8 +1574,573 @@
             }
         }
 
+        // Tracking Tokens functionality
+        async function fetchTrackingTokens() {
+            try {
+                const response = await apiFetch('/ingest/tokens');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const data = await response.json();
+                displayTrackingTokens(data.tokens);
+            } catch (error) {
+                console.error('Error fetching tracking tokens:', error);
+                showTokensMessage('Failed to load tracking tokens', 'error');
+            }
+        }
+
+        function displayTrackingTokens(tokens) {
+            const listEl = document.getElementById('tokens-list');
+            
+            if (!tokens || tokens.length === 0) {
+                listEl.innerHTML = '<p class="no-tokens">No tracking tokens found. Create one to start using client-push ingestion.</p>';
+                return;
+            }
+
+            listEl.innerHTML = tokens.map(token => {
+                const createdDate = new Date(token.created_at).toLocaleDateString();
+                const lastSeenDate = token.last_seen_at ? new Date(token.last_seen_at).toLocaleString() : 'Never';
+                const usageCount = token.usage_count || 0;
+                
+                return `
+                    <div class="token-item">
+                        <div class="token-info">
+                            <div class="token-label">${escapeHtml(token.label)}</div>
+                            <div class="token-value" onclick="copyToClipboard('${token.token}')" title="Click to copy">${token.token}</div>
+                            <div class="token-meta">
+                                Created: ${createdDate} | Last used: ${lastSeenDate} | Usage: ${usageCount} requests
+                            </div>
+                        </div>
+                        <div class="token-actions">
+                            <span class="token-status ${token.active ? 'active' : 'inactive'}">
+                                ${token.active ? 'Active' : 'Inactive'}
+                            </span>
+                            <button onclick="copySnippet('${token.token}', '${escapeHtml(token.label)}')" class="btn-primary">
+                                Copy Snippet
+                            </button>
+                            <button onclick="toggleToken(${token.id}, ${!token.active})" class="btn-secondary">
+                                ${token.active ? 'Deactivate' : 'Activate'}
+                            </button>
+                            <button onclick="deleteToken(${token.id}, '${escapeHtml(token.label)}')" class="btn-danger">
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function addTrackingToken(event) {
+            event.preventDefault();
+            const button = event.target.querySelector('button[type="submit"]');
+            const formData = new FormData(event.target);
+            const label = formData.get('label').trim();
+
+            if (!label) {
+                showTokensMessage('Label is required', 'error');
+                return;
+            }
+
+            const originalText = button.textContent;
+            button.disabled = true;
+            button.textContent = 'Creating...';
+
+            try {
+                const response = await apiFetch('/ingest/tokens', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ label })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message || `HTTP ${response.status}`);
+                }
+
+                showTokensMessage(`Tracking token "${label}" created successfully!`, 'success');
+                event.target.reset();
+                await fetchTrackingTokens();
+
+            } catch (error) {
+                console.error('Error adding tracking token:', error);
+                showTokensMessage(`Failed to create token: ${error.message}`, 'error');
+            } finally {
+                button.disabled = false;
+                button.textContent = originalText;
+            }
+        }
+
+        async function toggleToken(tokenId, newActiveState) {
+            try {
+                const response = await apiFetch(`/ingest/tokens/${tokenId}/active`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ active: newActiveState })
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.message || `HTTP ${response.status}`);
+                }
+
+                const action = newActiveState ? 'activated' : 'deactivated';
+                showTokensMessage(`Token ${action} successfully`, 'success');
+                await fetchTrackingTokens();
+
+            } catch (error) {
+                console.error('Error toggling token:', error);
+                showTokensMessage(`Failed to toggle token: ${error.message}`, 'error');
+            }
+        }
+
+        async function deleteToken(tokenId, label) {
+            if (!confirm(`Are you sure you want to delete the tracking token "${label}"? This action cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                const response = await apiFetch(`/ingest/tokens/${tokenId}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.message || `HTTP ${response.status}`);
+                }
+
+                showTokensMessage(`Token "${label}" deleted successfully`, 'success');
+                await fetchTrackingTokens();
+
+            } catch (error) {
+                console.error('Error deleting token:', error);
+                showTokensMessage(`Failed to delete token: ${error.message}`, 'error');
+            }
+        }
+
+        function copyToClipboard(text) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showTokensMessage('Token copied to clipboard!', 'success');
+                }).catch(() => {
+                    fallbackCopyToClipboard(text);
+                });
+            } else {
+                fallbackCopyToClipboard(text);
+            }
+        }
+
+        function fallbackCopyToClipboard(text) {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                showTokensMessage('Token copied to clipboard!', 'success');
+            } catch (err) {
+                showTokensMessage('Failed to copy token', 'error');
+            }
+            document.body.removeChild(textArea);
+        }
+
+        function copySnippet(token, label) {
+            openSnippetsModal(token, label);
+        }
+
+        function showTokensMessage(message, type = 'info') {
+            const messageEl = document.getElementById('tokens-message');
+            messageEl.textContent = message;
+            messageEl.className = `tokens-message ${type}`;
+            
+            // Hide message after 5 seconds
+            setTimeout(() => {
+                messageEl.className = 'tokens-message hidden';
+            }, 5000);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Usage snippets modal functionality
+        function openSnippetsModal(token, label) {
+            const modal = document.getElementById('snippets-modal');
+            
+            // Replace placeholders with actual values in all code blocks
+            updateSnippetContent(token);
+            
+            modal.classList.remove('hidden');
+            document.body.style.overflow = 'hidden'; // Prevent background scroll
+        }
+
+        function closeSnippetsModal() {
+            const modal = document.getElementById('snippets-modal');
+            modal.classList.add('hidden');
+            document.body.style.overflow = ''; // Restore scrolling
+        }
+
+        function switchTab(tabName) {
+            // Update tab buttons
+            const buttons = document.querySelectorAll('.tab-button');
+            buttons.forEach(btn => btn.classList.remove('active'));
+            
+            const activeButton = document.querySelector(`[onclick="switchTab('${tabName}')"]`);
+            if (activeButton) activeButton.classList.add('active');
+            
+            // Update tab content
+            const contents = document.querySelectorAll('.tab-content');
+            contents.forEach(content => content.classList.remove('active'));
+            
+            const activeContent = document.getElementById(`${tabName}-tab`);
+            if (activeContent) activeContent.classList.add('active');
+        }
+
+        function updateSnippetContent(token) {
+            const baseUrl = window.location.origin;
+            
+            // Update cURL examples
+            const curlBasic = document.getElementById('curl-basic');
+            if (curlBasic) {
+                curlBasic.textContent = `curl -X POST "${baseUrl}/ingest" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Ingest-Key: YOUR_INGEST_KEY" \\
+  -d '{
+    "tracking_token": "${token}",
+    "model": "gpt-4o-mini-2024-07-18",
+    "prompt_tokens": 100,
+    "completion_tokens": 50,
+    "cost_usd": 0.002250
+  }'`;
+            }
+
+            const curlIdempotent = document.getElementById('curl-idempotent');
+            if (curlIdempotent) {
+                curlIdempotent.textContent = `curl -X POST "${baseUrl}/ingest" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Ingest-Key: YOUR_INGEST_KEY" \\
+  -d '{
+    "tracking_token": "${token}",
+    "event_id": "unique-event-123",
+    "model": "gpt-4o-mini-2024-07-18",
+    "prompt_tokens": 100,
+    "completion_tokens": 50,
+    "total_tokens": 150,
+    "cost_usd": 0.002250,
+    "timestamp": "2024-01-15T10:30:00Z"
+  }'`;
+            }
+
+            // Update Python examples
+            const pythonBasic = document.getElementById('python-basic');
+            if (pythonBasic) {
+                pythonBasic.textContent = `import requests
+import json
+from datetime import datetime, timezone
+
+def log_openai_usage(tracking_token, model, prompt_tokens, completion_tokens, cost_usd, event_id=None):
+    """Log OpenAI usage to Cost Guardian"""
+    
+    payload = {
+        "tracking_token": tracking_token,
+        "model": model,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "cost_usd": cost_usd,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    if event_id:
+        payload["event_id"] = event_id
+    
+    response = requests.post(
+        "${baseUrl}/ingest",
+        headers={
+            "Content-Type": "application/json",
+            "X-Ingest-Key": "YOUR_INGEST_KEY"
+        },
+        json=payload
+    )
+    
+    if response.status_code == 201:
+        print("Usage logged successfully")
+    elif response.status_code == 200:
+        result = response.json()
+        if result.get("duplicate"):
+            print("Duplicate event ignored (idempotency)")
+    else:
+        print(f"Error logging usage: {response.status_code} - {response.text}")
+
+# Example usage
+log_openai_usage(
+    tracking_token="${token}",
+    model="gpt-4o-mini-2024-07-18",
+    prompt_tokens=100,
+    completion_tokens=50,
+    cost_usd=0.002250,
+    event_id="unique-event-123"  # Optional for idempotency
+)`;
+            }
+
+            const pythonOpenai = document.getElementById('python-openai');
+            if (pythonOpenai) {
+                pythonOpenai.textContent = `import openai
+import requests
+from datetime import datetime, timezone
+
+# Configure OpenAI and Cost Guardian
+openai.api_key = "your-openai-api-key"
+COST_GUARDIAN_URL = "${baseUrl}/ingest"
+INGEST_KEY = "YOUR_INGEST_KEY"
+TRACKING_TOKEN = "${token}"
+
+def chat_with_logging(messages, model="gpt-4o-mini-2024-07-18"):
+    """Make OpenAI chat completion and log usage to Cost Guardian"""
+    
+    # Make OpenAI request
+    response = openai.chat.completions.create(
+        model=model,
+        messages=messages
+    )
+    
+    # Extract usage information
+    usage = response.usage
+    
+    # Log to Cost Guardian
+    log_payload = {
+        "tracking_token": TRACKING_TOKEN,
+        "model": model,
+        "prompt_tokens": usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "total_tokens": usage.total_tokens,
+        "cost_usd": calculate_cost(usage, model),  # Implement your cost calculation
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event_id": response.id  # Use OpenAI response ID for idempotency
+    }
+    
+    requests.post(
+        COST_GUARDIAN_URL,
+        headers={
+            "Content-Type": "application/json",
+            "X-Ingest-Key": INGEST_KEY
+        },
+        json=log_payload
+    )
+    
+    return response
+
+def calculate_cost(usage, model):
+    """Calculate cost based on OpenAI pricing"""
+    # Example pricing for gpt-4o-mini-2024-07-18
+    prompt_cost_per_1k = 0.000150
+    completion_cost_per_1k = 0.000600
+    
+    prompt_cost = (usage.prompt_tokens / 1000) * prompt_cost_per_1k
+    completion_cost = (usage.completion_tokens / 1000) * completion_cost_per_1k
+    
+    return prompt_cost + completion_cost`;
+            }
+
+            // Update Node.js examples
+            const nodejsBasic = document.getElementById('nodejs-basic');
+            if (nodejsBasic) {
+                nodejsBasic.textContent = `async function logOpenAIUsage(trackingToken, model, promptTokens, completionTokens, costUsd, eventId = null) {
+  const payload = {
+    tracking_token: trackingToken,
+    model: model,
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    cost_usd: costUsd,
+    timestamp: new Date().toISOString()
+  };
+
+  if (eventId) {
+    payload.event_id = eventId;
+  }
+
+  try {
+    const response = await fetch("${baseUrl}/ingest", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Ingest-Key": "YOUR_INGEST_KEY"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json();
+
+    if (response.status === 201) {
+      console.log("Usage logged successfully");
+    } else if (response.status === 200 && data.duplicate) {
+      console.log("Duplicate event ignored (idempotency)");
+    } else {
+      console.error(\`Error logging usage: \${response.status}\`, data);
+    }
+  } catch (error) {
+    console.error("Failed to log usage:", error);
+  }
+}
+
+// Example usage
+await logOpenAIUsage(
+  "${token}",
+  "gpt-4o-mini-2024-07-18",
+  100,
+  50,
+  0.002250,
+  "unique-event-123"  // Optional for idempotency
+);`;
+            }
+
+            const nodejsOpenai = document.getElementById('nodejs-openai');
+            if (nodejsOpenai) {
+                nodejsOpenai.textContent = `import OpenAI from 'openai';
+
+const openai = new OpenAI({
+  apiKey: 'your-openai-api-key'
+});
+
+const COST_GUARDIAN_URL = "${baseUrl}/ingest";
+const INGEST_KEY = "YOUR_INGEST_KEY";
+const TRACKING_TOKEN = "${token}";
+
+async function chatWithLogging(messages, model = "gpt-4o-mini-2024-07-18") {
+  try {
+    // Make OpenAI request
+    const response = await openai.chat.completions.create({
+      model: model,
+      messages: messages
+    });
+
+    // Extract usage information
+    const usage = response.usage;
+
+    // Log to Cost Guardian
+    const logPayload = {
+      tracking_token: TRACKING_TOKEN,
+      model: model,
+      prompt_tokens: usage.prompt_tokens,
+      completion_tokens: usage.completion_tokens,
+      total_tokens: usage.total_tokens,
+      cost_usd: calculateCost(usage, model),
+      timestamp: new Date().toISOString(),
+      event_id: response.id  // Use OpenAI response ID for idempotency
+    };
+
+    await fetch(COST_GUARDIAN_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Ingest-Key": INGEST_KEY
+      },
+      body: JSON.stringify(logPayload)
+    });
+
+    return response;
+  } catch (error) {
+    console.error("Error in chat with logging:", error);
+    throw error;
+  }
+}
+
+function calculateCost(usage, model) {
+  // Example pricing for gpt-4o-mini-2024-07-18
+  const promptCostPer1k = 0.000150;
+  const completionCostPer1k = 0.000600;
+  
+  const promptCost = (usage.prompt_tokens / 1000) * promptCostPer1k;
+  const completionCost = (usage.completion_tokens / 1000) * completionCostPer1k;
+  
+  return promptCost + completionCost;
+}
+
+// Example usage
+const messages = [
+  { role: "user", content: "Hello, how are you?" }
+];
+
+const response = await chatWithLogging(messages);
+console.log(response.choices[0].message.content);`;
+            }
+        }
+
+        function copyCodeBlock(button) {
+            const codeBlock = button.parentElement;
+            const preElement = codeBlock.querySelector('pre');
+            const text = preElement.textContent;
+            
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    const originalText = button.textContent;
+                    button.textContent = 'Copied!';
+                    button.style.background = '#28a745';
+                    
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.style.background = '#007cba';
+                    }, 2000);
+                }).catch(() => {
+                    fallbackCopyCodeBlock(text, button);
+                });
+            } else {
+                fallbackCopyCodeBlock(text, button);
+            }
+        }
+
+        function fallbackCopyCodeBlock(text, button) {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            
+            try {
+                document.execCommand('copy');
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                button.style.background = '#28a745';
+                
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.background = '#007cba';
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy code block:', err);
+            }
+            
+            document.body.removeChild(textArea);
+        }
+
+        // Close modal on click outside or Escape key
+        document.addEventListener('click', (e) => {
+            const modal = document.getElementById('snippets-modal');
+            if (e.target === modal) {
+                closeSnippetsModal();
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            const modal = document.getElementById('snippets-modal');
+            const isModalVisible = !modal.classList.contains('hidden');
+            
+            if (e.key === 'Escape' && isModalVisible) {
+                closeSnippetsModal();
+            }
+        });
+
         // Set up event listeners
         document.getElementById('add-key-form').addEventListener('submit', addKey);
+        document.getElementById('add-token-form').addEventListener('submit', addTrackingToken);
 
         // Initialize on page load
         async function initialize() {
@@ -941,7 +2150,7 @@
                 // Try to authenticate with existing key
                 updateAuthStatus(existingKey);
                 try {
-                    await Promise.all([fetchData(), fetchKeys()]);
+                    await Promise.all([fetchData(), fetchKeys(), fetchTrackingTokens()]);
                 } catch (error) {
                     // Existing key invalid, clear it
                     clearApiKey();
@@ -951,7 +2160,7 @@
             } else {
                 // No key - try fetching data to see if auth is required
                 try {
-                    await Promise.all([fetchData(), fetchKeys()]);
+                    await Promise.all([fetchData(), fetchKeys(), fetchTrackingTokens()]);
                 } catch (error) {
                     if (error.message === 'Unauthorized') {
                         showLogin();

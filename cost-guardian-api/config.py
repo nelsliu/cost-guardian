@@ -25,6 +25,17 @@ RATE_LIMIT_RPM = int(os.getenv("RATE_LIMIT_RPM", "60"))
 RATE_LIMIT_BURST = int(os.getenv("RATE_LIMIT_BURST", os.getenv("RATE_LIMIT_RPM", "60")))
 RATE_LIMIT_EXEMPT = [path.strip() for path in os.getenv("RATE_LIMIT_EXEMPT", "/ping,/dashboard").split(",") if path.strip()]
 
+# Ingestion config
+INGEST_KEY = os.getenv("INGEST_KEY", "")
+INGEST_RPM = int(os.getenv("INGEST_RPM", str(RATE_LIMIT_RPM)))
+INGEST_BURST = int(os.getenv("INGEST_BURST", str(RATE_LIMIT_BURST)))
+
+# Worker config
+WORKER_HEARTBEAT_ENABLED = os.getenv("WORKER_HEARTBEAT_ENABLED", "false").lower() == "true"
+
+# Tracking token config
+TRACKING_TOKEN_LENGTH = int(os.getenv("TRACKING_TOKEN_LENGTH", "22"))
+
 # Environment and CORS config
 ENV = os.getenv("ENV", "development").lower()
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
