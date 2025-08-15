@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -6,7 +7,6 @@ load_dotenv()
 # OPENAI_API_KEY no longer used - keys managed via encrypted dashboard storage
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini-2024-07-18")
 PROBE_INTERVAL_SECS = int(os.getenv("PROBE_INTERVAL_SECS", "300"))
-DB_FILENAME = os.getenv("DB_FILENAME", "cost_guardian.db")
 SERVER_PORT = int(os.getenv("SERVER_PORT", "5001"))
 HEARTBEAT_PROMPT = os.getenv("HEARTBEAT_PROMPT", "ping")
 
@@ -40,5 +40,19 @@ ENV = os.getenv("ENV", "development").lower()
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
 DEBUG = (ENV != "production")
 
+# Database configuration - single source of truth
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, DB_FILENAME)
+
+# Data directory configuration - environment aware
+DATA_DIR = os.getenv(
+    "DATA_DIR",
+    "/app/data" if ENV == "production" else os.path.join(BASE_DIR, "data")
+)
+
+# Database file configuration - overridable for flexibility
+DB_FILENAME = os.getenv("DB_FILENAME", "usage_log.sqlite")
+DB_PATH = os.getenv("DB_PATH", os.path.join(DATA_DIR, DB_FILENAME))
+
+# Log resolved database path on startup
+logging.basicConfig(level=logging.INFO)
+logging.info("Database path resolved to: %s", DB_PATH)
