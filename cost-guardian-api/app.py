@@ -4,7 +4,7 @@ import logging, uuid, time, sqlite3, traceback, secrets
 from functools import wraps
 from datetime import datetime, timezone
 
-from config import DB_PATH, SERVER_PORT, API_KEY, DASHBOARD_PUBLIC, ENV, DEBUG, ALLOWED_ORIGINS, MASTER_KEY, RATE_LIMIT_RPM, RATE_LIMIT_BURST, RATE_LIMIT_EXEMPT, PROBE_INTERVAL_SECS, INGEST_KEY, INGEST_RPM, INGEST_BURST, WORKER_HEARTBEAT_ENABLED, TRACKING_TOKEN_LENGTH
+from config import DB_PATH, SERVER_PORT, API_KEY, ENV, DEBUG, ALLOWED_ORIGINS, MASTER_KEY, RATE_LIMIT_RPM, RATE_LIMIT_BURST, RATE_LIMIT_EXEMPT, PROBE_INTERVAL_SECS, INGEST_KEY, INGEST_RPM, INGEST_BURST, WORKER_HEARTBEAT_ENABLED, TRACKING_TOKEN_LENGTH
 from db import migrate, add_api_key, list_api_keys, set_api_key_active, delete_api_key, insert_usage, get_tracking_token_by_token, touch_tracking_token_last_seen, check_usage_duplicate, create_tracking_token, list_tracking_tokens, set_tracking_token_active, delete_tracking_token, query_usage, list_models
 from crypto import encrypt_key, decrypt_key
 from worker import probe_single_key
@@ -933,20 +933,15 @@ def remove_tracking_token(token_id):
 
 @app.route('/dashboard')
 def dashboard():
-    # Apply auth if dashboard is not public
-    if not DASHBOARD_PUBLIC:
-        if not API_KEY:
-            logging.warning("API_KEY not configured - dashboard accessible without auth")
-        else:
-            auth_header = request.headers.get('X-API-Key')
-            if not auth_header or auth_header != API_KEY:
-                logging.warning("[%s] Unauthorized access attempt to %s", g.get('req_id', '-'), request.path)
-                return json_error(401, "Unauthorized")
-    
-    return render_template('dashboard.html')
+    return render_template('dashboard.html', require_signin=(ENV == "production"))
 
 
 if __name__ == '__main__':
+    # Production validation - must come first
+    if ENV == "production" and not API_KEY:
+        logging.error("API_KEY must be set in production environment")
+        raise SystemExit(1)
+    
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
     
     # Startup configuration logging
@@ -955,6 +950,9 @@ if __name__ == '__main__':
                  ENV, DEBUG, origins_count, SERVER_PORT)
     if ALLOWED_ORIGINS:
         logging.info("Allowed origins: %s", ", ".join(ALLOWED_ORIGINS))
+    
+    # Dashboard auth requirement logging
+    logging.info("Dashboard auth requirement: %s", "ENFORCED" if ENV == "production" else "DISABLED (dev)")
     
     # Initialize rate limiting
     init_limit(RATE_LIMIT_RPM, RATE_LIMIT_BURST, RATE_LIMIT_EXEMPT)

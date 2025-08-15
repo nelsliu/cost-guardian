@@ -109,7 +109,7 @@ From the dashboard you can:
 ⸻
 
 🔧 How it works
-	1.	Admin auth: Protected endpoints require X-API-Key: <your_admin_key>. The dashboard HTML loads, then JS calls protected endpoints with your key.
+	1.	Admin auth: In production, the dashboard always requires sign-in. In development, leaving API_KEY blank disables admin auth for faster local testing.
 	2.	Keys at rest: Your OpenAI keys are encrypted with MASTER_KEY and never returned in plaintext.
 	3.	Background worker: Probes the OpenAI API on a schedule and logs per-key usage to SQLite.
 	4.	Rate limiting: Token bucket—configurable RPM & burst. In auth mode it limits per API key; in no-auth mode it limits per IP.

@@ -682,7 +682,7 @@
         }
     </style>
 </head>
-<body>
+<body data-require-signin="{{ 'true' if require_signin else 'false' }}">
     <!-- Auth Modal -->
     <div id="auth-overlay" class="auth-overlay hidden">
         <div class="auth-modal">
@@ -1641,7 +1641,6 @@ console.log(response.choices[0].message.content);</pre>
 
         // Cancel/close modal
         document.getElementById('cancel-btn').addEventListener('click', () => {
-            // Only allow cancel if dashboard is public (no immediate auth required)
             hideLogin();
             authInProgress = false;
         });
@@ -2710,6 +2709,17 @@ console.log(response.choices[0].message.content);`;
 
         // Initialize on page load
         async function initialize() {
+            // Check if production requires immediate sign-in
+            const requireSignIn = document.body.dataset.requireSignin === 'true';
+            const existingKey = getApiKey();
+            
+            if (requireSignIn && !existingKey) {
+                // Production mode with no key - show auth modal immediately
+                showLogin();
+                authInProgress = true; // Prevent escape/cancel until signed in
+                return; // Don't try to load data until signed in
+            }
+            
             // Load filters from URL first, then localStorage
             loadFiltersFromURL();
             
@@ -2717,8 +2727,6 @@ console.log(response.choices[0].message.content);`;
             const preset = document.getElementById('range-select').value;
             const customWrap = document.getElementById('custom-date-wrap');
             customWrap.style.display = preset === 'custom' ? 'flex' : 'none';
-            
-            const existingKey = getApiKey();
             
             if (existingKey) {
                 // Try to authenticate with existing key
@@ -2741,7 +2749,7 @@ console.log(response.choices[0].message.content);`;
                     showLogin('Your session has expired. Please sign in again.');
                 }
             } else {
-                // No key - try fetching data to see if auth is required
+                // No key - try fetching data to see if auth is required (dev mode)
                 try {
                     // Try loading tokens (may fail silently if auth required)
                     const tokens = await fetchTrackingTokensWithCache();
