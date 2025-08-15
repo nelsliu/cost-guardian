@@ -1,5 +1,3 @@
-Here’s a cleaned-up, production-ready README you can drop in:
-
 Cost Guardian 💰
 
 Real-time OpenAI API cost monitoring with secure multi-key management
