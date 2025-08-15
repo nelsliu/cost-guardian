@@ -189,6 +189,34 @@ Security tips
 
 ⸻
 
+💾 Persistence
+
+### Database Storage
+- **Container Location**: `/app/data/usage_log.sqlite`
+- **Host Mapping**: `./data` directory (created automatically)
+- **Volume Mount**: `./data:/app/data` in both API and worker containers
+
+### Data Backup
+```bash
+# Backup your data
+tar -czf cost-guardian-backup-$(date +%Y%m%d).tgz ./data
+
+# Restore data
+tar -xzf cost-guardian-backup-YYYYMMDD.tgz
+```
+
+### Legacy Migration
+On first startup, Cost Guardian automatically migrates existing databases:
+1. Checks `./data/cost_guardian.db` (preferred if exists)  
+2. Falls back to `./cost_guardian.db` (root directory)
+3. Falls back to `./usage_log.sqlite` (root directory)
+
+**Upgrade Note**: If you have an existing database in the app root, it will be automatically moved to `./data/usage_log.sqlite` on first run. Look for the migration log message to confirm.
+
+Migration precedence ensures newer data isn't overwritten - check logs for "Migrated legacy DB from X to Y" confirmation.
+
+⸻
+
 🧭 Troubleshooting
 	•	Port already in use: Stop previous server. macOS:
 

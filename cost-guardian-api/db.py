@@ -1,10 +1,80 @@
 # db.py
 import sqlite3
-from config import DB_PATH
+import os
+import shutil
+import time
+import logging
+from config import DB_PATH, BASE_DIR
+
+def _ensure_db_dir_and_migrate():
+    """Ensure data directory exists and handle legacy database migration with race protection."""
+    # Create directory if it doesn't exist
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    
+    # Skip migration if target already exists
+    if os.path.exists(DB_PATH):
+        return
+    
+    # File lock to prevent migration races between API and worker
+    lock_file = os.path.join(os.path.dirname(DB_PATH), ".migrate.lock")
+    try:
+        # Exclusive creation - fails if another process is migrating
+        with open(lock_file, 'x') as f:
+            f.write(f"Migration started by PID {os.getpid()}")
+            
+            # Migration candidates in order of preference:
+            # 1. data/cost_guardian.db (newer location, preferred)
+            # 2. root cost_guardian.db (legacy location)
+            # 3. root usage_log.sqlite (legacy location)
+            candidates = [
+                os.path.join(os.path.dirname(DB_PATH), "cost_guardian.db"),
+                os.path.join(BASE_DIR, "cost_guardian.db"),
+                os.path.join(BASE_DIR, "usage_log.sqlite")
+            ]
+            
+            for legacy in candidates:
+                if os.path.exists(legacy):
+                    shutil.move(legacy, DB_PATH)
+                    logging.info("Migrated legacy DB from %s to %s", legacy, DB_PATH)
+                    break
+                    
+    except FileExistsError:
+        # Another process is migrating, wait briefly then continue
+        logging.debug("Migration lock exists, waiting for completion...")
+        time.sleep(0.1)
+    except Exception as e:
+        logging.warning("Migration lock handling failed: %s", e)
+    finally:
+        # Clean up lock file (best effort)
+        try:
+            os.remove(lock_file)
+        except FileNotFoundError:
+            pass  # Another process cleaned it up
+        except Exception as e:
+            logging.warning("Failed to remove migration lock: %s", e)
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    """Get SQLite connection with proper setup and optimizations."""
+    _ensure_db_dir_and_migrate()
+    
+    # Connect with timeout to reduce "database is locked" errors
+    conn = sqlite3.connect(
+        DB_PATH,
+        timeout=30.0,  # 30 second timeout for lock conflicts
+        check_same_thread=True  # Keep default since we don't share connections across threads
+    )
     conn.row_factory = sqlite3.Row
+    
+    # Set SQLite pragmas for performance and reliability (best effort)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")       # Better concurrency
+        conn.execute("PRAGMA synchronous=NORMAL;")     # Performance/safety balance
+        conn.execute("PRAGMA foreign_keys=ON;")        # Data integrity
+        conn.execute("PRAGMA busy_timeout=30000;")     # 30 second busy timeout
+    except Exception as e:
+        # Don't crash on unsupported pragmas, just log
+        logging.debug("Failed to set SQLite pragmas: %s", e)
+    
     return conn
 
 def migrate():
