@@ -9,7 +9,7 @@ from db import migrate, add_api_key, list_api_keys, set_api_key_active, delete_a
 from crypto import encrypt_key, decrypt_key
 from worker import probe_single_key
 from rate_limit import init_limit, init_ingest_limit, check_rate_limit, is_exempt_path
-from metrics import increment_rate_limit_hits, increment_ingest_success, increment_ingest_duplicate, increment_ingest_bad_auth, increment_ingest_validation_error
+from metrics import increment_rate_limit_hits, increment_ingest_success, increment_ingest_duplicate, increment_ingest_bad_auth, increment_ingest_validation_error, observe_latency, observe_status
 
 app = Flask(__name__)
 
@@ -105,11 +105,17 @@ def _log_request(resp):
     logging.info("[%s] %s %s -> %s (%sms)",
                  g.get('req_id', '-'), request.method, request.path, resp.status_code, dt_ms)
 
-    # Add rate limit headers for successful requests
-    if resp.status_code < 400 and not is_exempt_path(request.path, request.method):
+    # Record metrics for specific endpoints
+    if request.path in ['/data', '/ingest']:
+        observe_latency(request.path, dt_ms)
+        observe_status(request.path, resp.status_code)
+
+    # Add rate limit headers for all non-exempt requests (including 429s)
+    if not is_exempt_path(request.path, request.method):
         resp.headers["X-RateLimit-Limit"] = str(RATE_LIMIT_RPM)
-        if hasattr(g, 'rate_limit_remaining'):
-            resp.headers["X-RateLimit-Remaining"] = str(int(g.rate_limit_remaining))
+        # Use 0 for blocked requests, actual remaining for others
+        remaining = getattr(g, 'rate_limit_remaining', 0)
+        resp.headers["X-RateLimit-Remaining"] = str(int(remaining))
 
     # Avoid caching JSON responses
     if resp.content_type and "application/json" in resp.content_type:
@@ -332,12 +338,13 @@ def get_system_metrics():
 @app.route('/data', methods=['GET'])
 @require_api_key
 def get_data():
-    """Get usage data with optional filtering by date range and model."""
+    """Get usage data with optional filtering by date range, model, and tracking token."""
     try:
         # Extract query parameters
         start_param = request.args.get('start')
         end_param = request.args.get('end')
         model_param = request.args.get('model')
+        ingest_token_id_param = request.args.get('ingest_token_id')
         
         # Normalize and validate date parameters
         start_normalized = _normalize_time_param(start_param, is_end=False) if start_param else None
@@ -357,14 +364,25 @@ def get_data():
             if start_dt > end_dt:
                 return json_error(400, "Start date cannot be after end date.")
         
+        # Validate ingest_token_id parameter
+        ingest_token_id = None
+        if ingest_token_id_param:
+            try:
+                ingest_token_id = int(ingest_token_id_param)
+                if ingest_token_id <= 0:
+                    return json_error(400, "ingest_token_id must be a positive integer.")
+            except (ValueError, TypeError):
+                return json_error(400, "ingest_token_id must be a valid integer.")
+        
         # Query with filters
-        logging.info("Querying usage data with filters: start=%s, end=%s, model=%s", 
-                    start_normalized, end_normalized, model_param)
+        logging.info("Querying usage data with filters: start=%s, end=%s, model=%s, ingest_token_id=%s", 
+                    start_normalized, end_normalized, model_param, ingest_token_id)
         
         rows = query_usage(
             start=start_normalized,
             end=end_normalized, 
-            model=model_param
+            model=model_param,
+            ingest_token_id=ingest_token_id
         )
         
         logging.info("Fetched %d rows from DB with filters.", len(rows))

@@ -641,15 +641,33 @@
         }
         .spinner {
             display: inline-block;
-            width: 16px;
-            height: 16px;
+            width: 18px;
+            height: 18px;
             border: 2px solid #ccc;
             border-top: 2px solid #007cba;
             border-radius: 50%;
-            animation: spin 0.8s linear infinite;
+            animation: spin 0.7s linear infinite;
+            vertical-align: middle;
+            margin-right: 8px;
         }
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .table-message {
+            text-align: center;
+            color: #555;
+            padding: 12px;
+        }
+        .table-message.error {
+            color: #b00020;
+        }
+        .table-message.empty {
+            color: #666;
+            font-style: italic;
+        }
+        .controls-disabled {
+            opacity: 0.6;
+            pointer-events: none;
         }
         .sr-only {
             position: absolute;
@@ -1064,7 +1082,7 @@ console.log(response.choices[0].message.content);</pre>
     <p id="reset-status"></p>
     
     <!-- Data Filters -->
-    <div class="filters" aria-live="polite">
+    <div class="filters" id="filters-container" aria-live="polite">
         <div class="group">
             <label for="range-select">Date Range:</label>
             <select id="range-select">
@@ -1084,6 +1102,15 @@ console.log(response.choices[0].message.content);</pre>
             <select id="model-select">
                 <option value="all" selected>All Models</option>
             </select>
+        </div>
+        <div class="group" id="token-filter-group" style="display:none;">
+            <label for="token-select">Tracking Token:</label>
+            <select id="token-select">
+                <option value="">All Tokens</option>
+            </select>
+        </div>
+        <div class="group">
+            <button type="button" id="export-csv-btn" class="btn-secondary">Export CSV</button>
         </div>
         <div class="spinner-container" id="filter-spinner" style="display:none;">
             <span class="spinner" role="status" aria-label="Loading"></span>
@@ -1128,6 +1155,8 @@ console.log(response.choices[0].message.content);</pre>
         // Global state
         let authInProgress = false;
         let abortController = null;
+        let currentRows = []; // Store current table data for CSV export
+        let tokenCache = null; // Cache for tracking tokens
         const API_KEY_STORAGE = 'cg_api_key';
 
         // Storage helpers
@@ -1203,8 +1232,77 @@ console.log(response.choices[0].message.content);</pre>
             errorEl.classList.add('hidden');
         }
 
+        // CSV Export with security protections
+        function exportCSV() {
+            if (!currentRows || currentRows.length === 0) {
+                alert('No data to export. Please ensure data is loaded.');
+                return;
+            }
+
+            // CSV injection protection: prefix dangerous starting characters with '
+            function sanitizeCSVField(field) {
+                const str = String(field || '');
+                if (str.startsWith('=') || str.startsWith('+') || str.startsWith('-') || str.startsWith('@')) {
+                    return "'" + str;
+                }
+                return str;
+            }
+
+            // Escape CSV field (handle commas, quotes, newlines)
+            function escapeCSVField(field) {
+                const sanitized = sanitizeCSVField(field);
+                if (sanitized.includes(',') || sanitized.includes('"') || sanitized.includes('\n')) {
+                    return '"' + sanitized.replace(/"/g, '""') + '"';
+                }
+                return sanitized;
+            }
+
+            // Generate CSV content
+            const headers = ['id', 'timestamp', 'model', 'promptTokens', 'completionTokens', 'totalTokens', 'estimatedCostUSD'];
+            const csvRows = [headers.join(',')];
+
+            currentRows.forEach(row => {
+                const csvRow = headers.map(header => escapeCSVField(row[header])).join(',');
+                csvRows.push(csvRow);
+            });
+
+            // Add UTF-8 BOM for Excel compatibility
+            const csvContent = '\ufeff' + csvRows.join('\n');
+
+            // Create and download file
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            
+            const now = new Date();
+            const timestamp = now.toISOString().slice(0, 19).replace(/[T:]/g, match => match === 'T' ? '-' : '');
+            const filename = `cost-guardian-${timestamp}.csv`;
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            link.style.display = 'none';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Clean up
+            URL.revokeObjectURL(url);
+        }
+
+        // Simulate slow network for testing (respects localStorage setting)
+        async function simulateSlowNetwork() {
+            const slowMs = localStorage.getItem('cg.simulateSlowMs');
+            if (slowMs && !isNaN(parseInt(slowMs))) {
+                await new Promise(resolve => setTimeout(resolve, parseInt(slowMs)));
+            }
+        }
+
         // Enhanced fetch wrapper
         async function apiFetch(path, opts = {}) {
+            // Simulate slow network if configured
+            await simulateSlowNetwork();
+
             const headers = new Headers(opts.headers || {});
             const key = getApiKey();
             
@@ -1232,36 +1330,36 @@ console.log(response.choices[0].message.content);</pre>
                         showLogin('Unauthorized. Please enter your API key.');
                         authInProgress = true;
                     }
-                    throw new Error('Unauthorized');
+                    throw new Error('Unauthorized. Please sign in.');
                 }
 
                 // Handle 429 Rate Limited
                 if (response.status === 429) {
-                    showStatus('Rate limited. Retrying in 2 seconds...', 'info');
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    
-                    // Retry once
-                    const retryResponse = await fetch(path, { 
-                        ...opts, 
-                        headers, 
-                        signal 
-                    });
-                    
-                    if (retryResponse.status === 429) {
-                        showStatus('Rate limit exceeded. Please try again later.', 'error');
-                        throw new Error('Rate limited');
+                    const retryAfter = response.headers.get('Retry-After');
+                    let message = 'Rate limited. Please retry.';
+                    if (retryAfter) {
+                        message += ` Try again in ${retryAfter}s.`;
                     }
-                    
-                    hideStatus();
-                    return retryResponse;
+                    throw new Error(message);
                 }
 
                 hideStatus();
                 return response;
             } catch (error) {
-                if (error.name !== 'AbortError' && error.message !== 'Unauthorized' && error.message !== 'Rate limited') {
-                    showStatus(`Network error: ${error.message}`, 'error');
+                if (error.name === 'AbortError') {
+                    throw error; // Re-throw abort errors
                 }
+                
+                // Network errors
+                if (!navigator.onLine) {
+                    throw new Error('No internet connection. Please check your network.');
+                }
+                
+                if (error.message.includes('Failed to fetch')) {
+                    throw new Error('We couldn\'t load data. Please try again.');
+                }
+                
+                // Re-throw other errors as-is
                 throw error;
             } finally {
                 // Clear reference so we don't accidentally abort later requests
@@ -1367,10 +1465,57 @@ console.log(response.choices[0].message.content);</pre>
             return { start: null, end: null };
         }
 
+        // Enhanced loading and error state management
+        function setLoading(isLoading) {
+            const filtersContainer = document.getElementById('filters-container');
+            const resetBtn = document.getElementById('reset-btn');
+            const exportBtn = document.getElementById('export-csv-btn');
+            
+            if (isLoading) {
+                filtersContainer.classList.add('controls-disabled');
+                resetBtn.disabled = true;
+                exportBtn.disabled = true;
+                renderSpinnerRow();
+            } else {
+                filtersContainer.classList.remove('controls-disabled');
+                resetBtn.disabled = false;
+                exportBtn.disabled = false;
+            }
+        }
+
+        function renderSpinnerRow() {
+            const tbody = document.getElementById('usage-table').getElementsByTagName('tbody')[0];
+            const colspan = document.getElementById('usage-table').getElementsByTagName('th').length;
+            tbody.innerHTML = `<tr><td colspan="${colspan}" class="table-message">
+                <span class="spinner" aria-hidden="true"></span>Loading…
+            </td></tr>`;
+        }
+
+        function renderError(message) {
+            const tbody = document.getElementById('usage-table').getElementsByTagName('tbody')[0];
+            const colspan = document.getElementById('usage-table').getElementsByTagName('th').length;
+            tbody.innerHTML = `<tr><td colspan="${colspan}" class="table-message error">
+                Couldn't load data: <span>${message}</span>
+            </td></tr>`;
+            // Zero out totals on error
+            renderTotals(computeTotals([]));
+        }
+
+        function renderEmpty() {
+            const tbody = document.getElementById('usage-table').getElementsByTagName('tbody')[0];
+            const colspan = document.getElementById('usage-table').getElementsByTagName('th').length;
+            tbody.innerHTML = `<tr><td colspan="${colspan}" class="table-message empty">
+                No data for the selected filters.
+            </td></tr>`;
+            // Zero out totals on empty
+            renderTotals(computeTotals([]));
+        }
+
         function renderTableMessage(text, type = 'info') {
             const tbody = document.getElementById('usage-table').getElementsByTagName('tbody')[0];
-            const color = type === 'error' ? '#d32f2f' : '#666';
-            tbody.innerHTML = `<tr><td colspan="7" style="color:${color}; padding:1rem; text-align:center;">${text}</td></tr>`;
+            const colspan = document.getElementById('usage-table').getElementsByTagName('th').length;
+            const cssClass = type === 'error' ? 'table-message error' : 'table-message';
+            tbody.innerHTML = `<tr><td colspan="${colspan}" class="${cssClass}">${text}</td></tr>`;
         }
 
         function populateModelOptions(rows) {
@@ -1392,16 +1537,21 @@ console.log(response.choices[0].message.content);</pre>
 
         // Enhanced data fetching with filters
         async function fetchData(filters = {}) {
+            // Cancel previous request if still in flight
+            if (abortController) {
+                abortController.abort();
+                abortController = null;
+            }
+
             try {
-                // Loading state
-                document.getElementById('reset-btn').disabled = true;
-                document.getElementById('status-message').classList.add('hidden');
-                renderTableMessage('<span class="spinner" aria-hidden="true"></span> Loading…');
+                setLoading(true);
+                hideStatus();
 
                 const params = new URLSearchParams();
                 if (filters.start) params.set('start', filters.start);
                 if (filters.end) params.set('end', filters.end);
                 if (filters.model && filters.model !== 'all') params.set('model', filters.model);
+                if (filters.ingest_token_id) params.set('ingest_token_id', filters.ingest_token_id);
 
                 const response = await apiFetch('/data' + (params.toString() ? `?${params}` : ''));
                 
@@ -1413,30 +1563,30 @@ console.log(response.choices[0].message.content);</pre>
                 
                 const payload = await response.json();
                 const rows = Array.isArray(payload) ? payload : payload?.data;
+                currentRows = rows || []; // Store for CSV export
 
                 if (!rows || rows.length === 0) {
-                    renderRows([]); // clears body
-                    renderTableMessage('No data for the selected filters.');
-                    renderTotals(computeTotals([])); // ensure totals row shows zeros
+                    renderEmpty();
+                    populateModelOptions(rows);
                     return;
                 }
 
                 renderRows(rows);
                 populateModelOptions(rows);
                 renderTotals(computeTotals(rows));
-                document.getElementById('reset-btn').disabled = false;
                 
             } catch (error) {
-                console.error('Error loading data:', error);
-                renderRows([]); // clears body
+                if (error.name === 'AbortError') {
+                    return; // Request was cancelled, ignore
+                }
                 
-                // Display server error messages in the table
-                const errorMessage = error.message.includes('HTTP') ? 
-                    'Failed to load data. Please try again.' : 
-                    `Error: ${error.message}`;
-                    
-                renderTableMessage(errorMessage, 'error');
-                renderTotals(computeTotals([]));
+                console.error('Error loading data:', error);
+                currentRows = []; // Clear data on error
+                
+                renderError(error.message);
+                
+            } finally {
+                setLoading(false);
             }
         }
 
@@ -2323,20 +2473,87 @@ console.log(response.choices[0].message.content);`;
         });
 
         // Filtering functions
+        // Token filter management with graceful degradation
+        async function fetchTrackingTokensWithCache() {
+            if (tokenCache) {
+                return tokenCache;
+            }
+
+            try {
+                const response = await apiFetch('/ingest/tokens');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                tokenCache = data.tokens || [];
+                return tokenCache;
+            } catch (error) {
+                // Graceful degradation - hide token filter on auth failure
+                if (error.message.includes('401') || error.message.includes('403') || error.message.includes('404')) {
+                    console.log('Token filter unavailable (auth required)');
+                    document.getElementById('token-filter-group').style.display = 'none';
+                    // Clear any stale token filter from localStorage
+                    localStorage.removeItem('cg_token_filter');
+                    return [];
+                }
+                throw error;
+            }
+        }
+
+        function populateTokenOptions(tokens) {
+            const select = document.getElementById('token-select');
+            const current = select.value || '';
+            
+            // Clear existing options except "All Tokens"
+            select.innerHTML = '<option value="">All Tokens</option>';
+            
+            if (tokens && tokens.length > 0) {
+                tokens.forEach(token => {
+                    const option = document.createElement('option');
+                    option.value = token.id;
+                    option.textContent = `${token.label} (${token.usage_count || 0} uses)`;
+                    select.appendChild(option);
+                });
+                
+                // Show the token filter group
+                document.getElementById('token-filter-group').style.display = 'flex';
+                
+                // Restore previous selection if still valid
+                const savedToken = localStorage.getItem('cg_token_filter');
+                if (savedToken && [...select.options].some(o => o.value === savedToken)) {
+                    select.value = savedToken;
+                } else if (current && [...select.options].some(o => o.value === current)) {
+                    select.value = current;
+                }
+            }
+        }
+
         function getCurrentFilters() {
             const preset = document.getElementById('range-select').value;
             const model = document.getElementById('model-select').value;
+            const tokenId = document.getElementById('token-select').value;
+
+            let filters = { model };
+            
+            // Add token filter if selected
+            if (tokenId) {
+                filters.ingest_token_id = parseInt(tokenId);
+            }
 
             if (preset === 'custom') {
                 const sd = document.getElementById('start-date').value;
                 const ed = document.getElementById('end-date').value;
                 if (sd && ed) {
-                    return { start: toISOStartOfDay(sd), end: toISOEndOfDay(ed), model };
+                    filters.start = toISOStartOfDay(sd);
+                    filters.end = toISOEndOfDay(ed);
                 }
-                return { model }; // no date filtering until both provided
+                return filters; // no date filtering until both provided
             } else {
                 const { start, end } = computePresetRange(preset);
-                return { start, end, model };
+                filters.start = start;
+                filters.end = end;
+                return filters;
             }
         }
 
@@ -2347,6 +2564,7 @@ console.log(response.choices[0].message.content);`;
             if (preset !== 'custom') {
                 // Save filter preference
                 localStorage.setItem('cg_date_preset', preset);
+                updateURLFromFilters();
                 fetchData(getCurrentFilters());
             }
         }
@@ -2357,6 +2575,19 @@ console.log(response.choices[0].message.content);`;
             clearTimeout(modelChangeTimeout);
             modelChangeTimeout = setTimeout(() => {
                 localStorage.setItem('cg_model_filter', document.getElementById('model-select').value);
+                updateURLFromFilters();
+                fetchData(getCurrentFilters());
+            }, 150);
+        }
+
+        // Debounced token change handler
+        let tokenChangeTimeout;
+        function onTokenChange() {
+            clearTimeout(tokenChangeTimeout);
+            tokenChangeTimeout = setTimeout(() => {
+                const tokenId = document.getElementById('token-select').value;
+                localStorage.setItem('cg_token_filter', tokenId);
+                updateURLFromFilters();
                 fetchData(getCurrentFilters());
             }, 150);
         }
@@ -2366,6 +2597,7 @@ console.log(response.choices[0].message.content);`;
             const endDate = document.getElementById('end-date').value;
             
             if (startDate && endDate) {
+                updateURLFromFilters();
                 fetchData(getCurrentFilters());
             } else if (startDate || endDate) {
                 // Show hint when only one date is selected
@@ -2374,7 +2606,7 @@ console.log(response.choices[0].message.content);`;
             }
         }
 
-        // Load models from server for stable dropdown
+        // Load models from server for stable dropdown with fallback
         async function loadModels() {
             try {
                 const response = await apiFetch('/models');
@@ -2398,7 +2630,10 @@ console.log(response.choices[0].message.content);`;
                 }
             } catch (error) {
                 console.error('Failed to load models:', error);
-                // Fallback to populating from current data
+                // Fallback: populate from current data if available
+                if (currentRows && currentRows.length > 0) {
+                    populateModelOptions(currentRows);
+                }
             }
         }
 
@@ -2409,22 +2644,79 @@ console.log(response.choices[0].message.content);`;
         // Filter event listeners
         document.getElementById('range-select').addEventListener('change', onPresetChange);
         document.getElementById('model-select').addEventListener('change', onModelChange);
+        document.getElementById('token-select').addEventListener('change', onTokenChange);
         document.getElementById('apply-filters').addEventListener('click', () => fetchData(getCurrentFilters()));
         document.getElementById('start-date').addEventListener('change', onDateChange);
         document.getElementById('end-date').addEventListener('change', onDateChange);
+        
+        // CSV export listener
+        document.getElementById('export-csv-btn').addEventListener('click', exportCSV);
+
+        // URL state management for filter sharing
+        function updateURLFromFilters() {
+            const filters = getCurrentFilters();
+            const params = new URLSearchParams(window.location.search);
+            
+            // Clear existing filter params
+            params.delete('preset');
+            params.delete('model');
+            params.delete('token');
+            params.delete('start');
+            params.delete('end');
+            
+            // Add current filter values
+            const preset = document.getElementById('range-select').value;
+            if (preset !== 'this_month') params.set('preset', preset);
+            if (filters.model && filters.model !== 'all') params.set('model', filters.model);
+            if (filters.ingest_token_id) params.set('token', filters.ingest_token_id.toString());
+            
+            if (preset === 'custom') {
+                const startDate = document.getElementById('start-date').value;
+                const endDate = document.getElementById('end-date').value;
+                if (startDate) params.set('start', startDate);
+                if (endDate) params.set('end', endDate);
+            }
+            
+            // Update URL without triggering reload
+            const newURL = params.toString() ? 
+                `${window.location.pathname}?${params.toString()}` : 
+                window.location.pathname;
+            window.history.replaceState({}, '', newURL);
+        }
+
+        function loadFiltersFromURL() {
+            const params = new URLSearchParams(window.location.search);
+            
+            // Load preset
+            const preset = params.get('preset') || localStorage.getItem('cg_date_preset') || 'this_month';
+            document.getElementById('range-select').value = preset;
+            
+            // Load model
+            const model = params.get('model') || localStorage.getItem('cg_model_filter') || 'all';
+            document.getElementById('model-select').value = model;
+            
+            // Load token (URL takes precedence over localStorage)
+            const token = params.get('token') || localStorage.getItem('cg_token_filter') || '';
+            document.getElementById('token-select').value = token;
+            
+            // Load custom dates if preset is custom
+            if (preset === 'custom') {
+                const start = params.get('start');
+                const end = params.get('end');
+                if (start) document.getElementById('start-date').value = start;
+                if (end) document.getElementById('end-date').value = end;
+            }
+        }
 
         // Initialize on page load
         async function initialize() {
-            // Set up default filters from localStorage or defaults
-            const savedPreset = localStorage.getItem('cg_date_preset') || 'this_month';
-            const savedModel = localStorage.getItem('cg_model_filter') || 'all';
-            
-            document.getElementById('range-select').value = savedPreset;
-            document.getElementById('model-select').value = savedModel;
+            // Load filters from URL first, then localStorage
+            loadFiltersFromURL();
             
             // Show/hide custom date inputs based on preset
+            const preset = document.getElementById('range-select').value;
             const customWrap = document.getElementById('custom-date-wrap');
-            customWrap.style.display = savedPreset === 'custom' ? 'flex' : 'none';
+            customWrap.style.display = preset === 'custom' ? 'flex' : 'none';
             
             const existingKey = getApiKey();
             
@@ -2432,11 +2724,14 @@ console.log(response.choices[0].message.content);`;
                 // Try to authenticate with existing key
                 updateAuthStatus(existingKey);
                 try {
-                    // Load data, keys, tokens, and models in parallel
+                    // Load tokens first to populate dropdown, then other data
+                    const tokens = await fetchTrackingTokensWithCache();
+                    populateTokenOptions(tokens);
+                    
+                    // Load data, keys, and models in parallel
                     await Promise.all([
                         fetchData(getCurrentFilters()),
                         fetchKeys(),
-                        fetchTrackingTokens(),
                         loadModels()
                     ]);
                 } catch (error) {
@@ -2448,14 +2743,17 @@ console.log(response.choices[0].message.content);`;
             } else {
                 // No key - try fetching data to see if auth is required
                 try {
+                    // Try loading tokens (may fail silently if auth required)
+                    const tokens = await fetchTrackingTokensWithCache();
+                    populateTokenOptions(tokens);
+                    
                     await Promise.all([
                         fetchData(getCurrentFilters()),
                         fetchKeys(),
-                        fetchTrackingTokens(),
                         loadModels()
                     ]);
                 } catch (error) {
-                    if (error.message === 'Unauthorized') {
+                    if (error.message.includes('Unauthorized')) {
                         showLogin();
                     }
                 }
