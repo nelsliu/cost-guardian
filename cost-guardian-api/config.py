@@ -12,7 +12,6 @@ HEARTBEAT_PROMPT = os.getenv("HEARTBEAT_PROMPT", "ping")
 
 # Auth config
 API_KEY = os.getenv("API_KEY", "")
-DASHBOARD_PUBLIC = os.getenv("DASHBOARD_PUBLIC", "true").lower() == "true"
 
 # Encryption config
 MASTER_KEY = os.getenv("MASTER_KEY", "")
