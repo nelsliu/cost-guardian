@@ -337,13 +337,14 @@ def check_usage_duplicate(ingest_token_id: int, event_id: str) -> bool:
         """, (ingest_token_id, event_id))
         return c.fetchone()["count"] > 0
 
-def query_usage(start: str = None, end: str = None, model: str = None, limit: int = 5000, offset: int = 0) -> list:
+def query_usage(start: str = None, end: str = None, model: str = None, ingest_token_id: int = None, limit: int = 5000, offset: int = 0) -> list:
     """Query usage_log with optional filters and pagination.
     
     Args:
         start: Start timestamp (ISO-8601 UTC) for filtering (inclusive)
         end: End timestamp (ISO-8601 UTC) for filtering (inclusive)  
         model: Exact model name to filter by
+        ingest_token_id: Filter by specific tracking token ID
         limit: Maximum number of rows to return (default: 5000)
         offset: Number of rows to skip (default: 0)
         
@@ -365,6 +366,9 @@ def query_usage(start: str = None, end: str = None, model: str = None, limit: in
     if model:
         sql += " AND model = ?"
         params.append(model)
+    if ingest_token_id is not None:
+        sql += " AND ingest_token_id = ?"
+        params.append(ingest_token_id)
         
     sql += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
     params.extend([int(limit), int(offset)])
