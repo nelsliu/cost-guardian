@@ -109,10 +109,26 @@ From the dashboard you can:
 ⸻
 
 🔧 How it works
+
+## Usage Tracking Modes
+
+**🚀 Recommended: Client-Push Ingestion (Production)**
+- Your applications push real usage data to `/ingest` endpoint
+- Shows actual token usage from your real workloads
+- Supports project attribution via tracking tokens
+- No wasted API calls - only tracks actual usage
+- Set `WORKER_HEARTBEAT_ENABLED=false` in production
+
+**🛠️ Alternative: Background Worker (Development/Testing)**
+- Periodically pings OpenAI APIs with tiny "heartbeat" requests
+- Useful for testing API key validity and basic setup
+- Shows only small probe usage, not your real application usage
+- Set `WORKER_HEARTBEAT_ENABLED=true` for testing
+
+## Core Architecture
 	1.	Admin auth: In production, the dashboard always requires sign-in. In development, leaving API_KEY blank disables admin auth for faster local testing.
 	2.	Keys at rest: Your OpenAI keys are encrypted with MASTER_KEY and never returned in plaintext.
-	3.	Background worker: Probes the OpenAI API on a schedule and logs per-key usage to SQLite.
-	4.	Rate limiting: Token bucket—configurable RPM & burst. In auth mode it limits per API key; in no-auth mode it limits per IP.
+	3.	Rate limiting: Token bucket—configurable RPM & burst. In auth mode it limits per API key; in no-auth mode it limits per IP.
 Limits are per process (in-memory). Multiple API replicas mean limits apply per replica.
 
 ⸻
