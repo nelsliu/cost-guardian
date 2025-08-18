@@ -1,279 +1,409 @@
-Here’s a cleaned-up, production-ready README you can drop in:
+# Cost Guardian 💰
 
-Cost Guardian 💰
+Real-time OpenAI API cost monitoring with client-push ingestion
 
-Real-time OpenAI API cost monitoring with secure multi-key management
+Cost Guardian is a Flask-based web app that helps you monitor OpenAI API usage and costs in real time through client-push data ingestion. It features tracking tokens, rate limiting, and a simple web dashboard.
 
-Cost Guardian is a Flask-based web app that helps you monitor OpenAI API usage and costs in real time. It includes encrypted API key storage, background usage collection, rate limiting, and a simple web dashboard.
+---
 
-⸻
+## ✨ Features
 
-✨ Features
+### 🏷️ Tracking Token System
+- Generate unique tracking tokens for different apps/environments
+- Client-push ingestion via `/ingest` endpoint
+- No API key storage required - your keys stay in your applications
 
-🔐 Secure multi-key management
-	•	Encrypted at rest with Fernet (symmetric encryption)
-	•	Multiple keys per deployment, each with a label
-	•	Activate/disable keys without deleting
-	•	Masked display—plaintext keys never returned or logged
+### 📊 Usage Analytics
+- Real-time usage tracking and cost calculation
+- Per-token attribution for usage analysis
+- Historical data with filtering by date, model, and token
+- CSV export capabilities
 
-📊 Automated usage tracking
-	•	Background worker probes OpenAI regularly
-	•	Cost estimates using the configured model’s pricing
-	•	Per-key attribution for usage and cost
-	•	Health flag: last successful probe per key
+### 🎛️ Dashboard
+- Live table of usage data with filtering
+- Usage totals and cost summaries
+- Tracking token management
+- Admin authentication with "remember me" option
 
-🎛️ Dashboard
-	•	Live table of usage rows
-	•	Totals row (tokens & $)
-	•	Manage API keys (add/activate/delete)
-	•	Auth UI (enter admin API key once; “remember” option)
+### 🔒 Production Ready
+- Admin authentication via X-API-Key header
+- Server-to-server authentication via X-Ingest-Key header
+- Rate limiting with token bucket algorithm
+- CORS controls for browser security
+- Environment-aware error handling
 
-🔒 Production hardening
-	•	Admin auth via X-API-Key
-	•	Rate limiting (token bucket; per API key or IP)
-	•	CORS controls (allowed origins)
-	•	Environment-aware errors (clean JSON in prod)
+### 🐳 Docker Support
+- Single-service Docker deployment
+- Health checks and persistent storage
+- Production-ready with Gunicorn
 
-🐳 Docker support
-	•	Dockerfile + docker compose
-	•	Health checks
-	•	Persistent volume for database
+---
 
-⸻
+## 🚀 Quick Start
 
-🚀 Quick Start
+### Prerequisites
+- Python 3.9+ or Docker
+- OpenAI applications you want to monitor
 
-Prerequisites
-	•	Python 3.9+
-	•	(Optional) Docker & Docker Compose
-	•	An OpenAI account (you add API keys in the dashboard—not in .env)
+### 1) Clone & Install
 
-1) Clone & install (no Docker)
-
+```bash
 git clone <repository-url>
 cd cost-guardian-api
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+```
 
-2) Configure
+### 2) Configure
 
-Copy the example env and set required values:
-
+```bash
 cp .env.example .env
+```
 
 Essential configuration:
 
-# Required
-MASTER_KEY=your_32_byte_fernet_key_here           # Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-API_KEY=your_secret_admin_key_here                # For admin requests to protected endpoints
-ENV=production                                    # production | development
-ALLOWED_ORIGINS=https://your-domain.com           # Comma-separated list of allowed browser origins
-
-# OpenAI + worker
-OPENAI_MODEL=gpt-4o-mini-2024-07-18
-PROBE_INTERVAL_SECS=300
-
-# Rate limiting (optional; per process)
-RATE_LIMIT_RPM=60
-RATE_LIMIT_BURST=60
-RATE_LIMIT_EXEMPT=/ping,/dashboard,/health
-
-Notes
-	•	Do not change MASTER_KEY after adding keys; previously stored keys become unrecoverable.
-	•	In development you can set ENV=development and ALLOWED_ORIGINS=http://127.0.0.1:5001.
-
-3) Run it
-
-Option A — Python
-
-# Terminal 1 (API)
-python app.py
-
-# Terminal 2 (worker)
-python worker.py
-
-Option B — Docker
-
-docker compose up -d
-
-4) Open the dashboard
-
-Visit: http://localhost:5001/dashboard
-
-From the dashboard you can:
-	•	Add your OpenAI API keys (stored encrypted)
-	•	See live usage rows & totals
-	•	Activate/deactivate or delete keys
-
-⸻
-
-🔧 How it works
-	1.	Admin auth: In production, the dashboard always requires sign-in. In development, leaving API_KEY blank disables admin auth for faster local testing.
-	2.	Keys at rest: Your OpenAI keys are encrypted with MASTER_KEY and never returned in plaintext.
-	3.	Background worker: Probes the OpenAI API on a schedule and logs per-key usage to SQLite.
-	4.	Rate limiting: Token bucket—configurable RPM & burst. In auth mode it limits per API key; in no-auth mode it limits per IP.
-Limits are per process (in-memory). Multiple API replicas mean limits apply per replica.
-
-⸻
-
-📡 API Endpoints
-
-Public
-	•	GET /ping — lightweight liveness
-	•	GET /health — health probe
-	•	GET /dashboard — dashboard HTML (data calls are protected)
-
-Protected (require X-API-Key)
-	•	GET /data — list usage rows
-	•	DELETE /reset — clear usage data
-	•	GET /keys — list keys (masked)
-	•	POST /keys — add key {label, key, provider}
-	•	PATCH /keys/<id>/active — activate/deactivate
-	•	DELETE /keys/<id> — delete key
-	•	GET /metrics — system metrics & health
-
-Example /metrics
-
-curl -s -H "X-API-Key: $API_KEY" http://localhost:5001/metrics | jq
-
-Example response (fields abbreviated):
-
-{
-  "version": "1",
-  "env": "production",
-  "debug": false,
-  "rate_limit": {"rpm": 60, "burst": 60, "exempt_paths": ["/ping","/dashboard","/health"]},
-  "counters": {"rate_limit_hits": 2},
-  "db": {
-    "usage_rows": 1250,
-    "active_keys": 3,
-    "last_usage_at": "2025-08-11T10:30:45+00:00",
-    "last_key_ok_at": "2025-08-11T10:30:12+00:00"
-  },
-  "worker": {"probe_interval_secs": 300, "healthy": true}
-}
-
-
-⸻
-
-🐳 Docker deployment
-
-Development
-
-docker compose up -d
-
-Production (example)
-
-export ENV=production
-export MASTER_KEY="your_master_key"
-export API_KEY="your_admin_key"
-export ALLOWED_ORIGINS="https://your-domain.com"
-
-docker compose up -d
-
-Security tips
-	•	Provide secrets via env vars or Docker secrets (not baked into images)
-	•	Restrict ALLOWED_ORIGINS
-	•	Terminate TLS (HTTPS) at a reverse proxy (nginx/Traefik) in front
-
-⸻
-
-🔐 Security considerations
-	•	MASTER_KEY: Back it up securely (password manager / vault). If lost, encrypted keys are unrecoverable.
-	•	No plaintext key exposure: The server never returns stored API keys.
-	•	Auth vs. rate limiting:
-	•	Missing/invalid admin key → 401
-	•	Over the limit → 429 with Retry-After
-	•	Prod error handling: In ENV=production, clients get clean JSON; full tracebacks stay in server logs.
-
-⸻
-
-💾 Persistence
-
-### Database Storage
-- **Container Location**: `/app/data/usage_log.sqlite`
-- **Host Mapping**: `./data` directory (created automatically)
-- **Volume Mount**: `./data:/app/data` in both API and worker containers
-
-### Data Backup
 ```bash
-# Backup your data
-tar -czf cost-guardian-backup-$(date +%Y%m%d).tgz ./data
+# Required for production
+API_KEY=your_secret_admin_key_here          # Admin dashboard access
+INGEST_KEY=your_secret_ingest_key_here      # Server-to-server ingestion auth
+ENV=production                              # production | development
+ALLOWED_ORIGINS=https://your-domain.com     # Browser origins (comma-separated)
 
-# Restore data
-tar -xzf cost-guardian-backup-YYYYMMDD.tgz
+# Optional configuration
+OPENAI_MODEL=gpt-4o-mini-2024-07-18        # For cost calculation reference
+RATE_LIMIT_RPM=60                          # Requests per minute
+RATE_LIMIT_BURST=60                        # Burst capacity
+INGEST_RPM=60                              # Ingestion rate limit
+TRACKING_TOKEN_LENGTH=22                   # Generated token length
 ```
 
-### Legacy Migration
-On first startup, Cost Guardian automatically migrates existing databases:
-1. Checks `./data/cost_guardian.db` (preferred if exists)  
-2. Falls back to `./cost_guardian.db` (root directory)
-3. Falls back to `./usage_log.sqlite` (root directory)
+### 3) Run the Service
 
-**Upgrade Note**: If you have an existing database in the app root, it will be automatically moved to `./data/usage_log.sqlite` on first run. Look for the migration log message to confirm.
+**Option A - Python:**
+```bash
+python app.py
+```
 
-Migration precedence ensures newer data isn't overwritten - check logs for "Migrated legacy DB from X to Y" confirmation.
+**Option B - Docker:**
+```bash
+docker-compose up -d
+```
 
-⸻
+### 4) Create Your First Tracking Token
 
-🧭 Troubleshooting
-	•	Port already in use: Stop previous server. macOS:
+1. Open the dashboard: `http://localhost:5001/dashboard`
+2. Sign in with your `API_KEY`
+3. Create a tracking token (e.g., "Production App")
+4. Copy the generated token and code snippet
 
-lsof -ti :5001 | xargs kill -9
+### 5) Integrate with Your Application
 
+Add the provided code snippet to your OpenAI-using application:
 
-	•	CORS blocked: Set ALLOWED_ORIGINS to match the URL you load the dashboard from.
-	•	Cannot fetch data (401): Ensure requests include X-API-Key equal to your admin key.
-	•	Rate limited (429): The dashboard auto-retries; or respect Retry-After header.
+```python
+import requests
+import json
 
-⸻
+def track_openai_usage(response, tracking_token="your_token_here"):
+    """Track OpenAI API usage after each request"""
+    usage = response.usage
+    
+    usage_data = {
+        "tracking_token": tracking_token,
+        "model": response.model,
+        "prompt_tokens": usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "total_tokens": usage.total_tokens
+    }
+    
+    try:
+        requests.post(
+            "http://localhost:5001/ingest",
+            headers={"X-Ingest-Key": "your_ingest_key_here"},
+            json=usage_data,
+            timeout=5
+        )
+    except Exception as e:
+        print(f"Usage tracking failed: {e}")
 
-📂 Project structure
+# Example usage with OpenAI client
+response = openai_client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
 
-cost-guardian-api/
-├─ app.py               # Flask API & routes
-├─ worker.py            # Background probing loop
-├─ crypto.py            # Fernet encrypt/decrypt helpers
-├─ db.py                # SQLite schema & ops
-├─ calc.py              # Cost calculation
-├─ rate_limit.py        # Token bucket limiter
-├─ metrics.py           # Counters & metrics snapshot
-├─ config.py            # Env-driven configuration
-├─ templates/
-│  └─ dashboard.html    # Dashboard UI
-├─ requirements.txt
-├─ Dockerfile
-├─ docker-compose.yml
-└─ README.md
+# Track the usage
+track_openai_usage(response, "your_token_here")
+```
 
+---
 
-⸻
+## 📋 API Reference
 
-🛠️ Development tips
+### Public Endpoints
+- `GET /ping` - Health check
+- `GET /health` - Detailed health status  
+- `GET /dashboard` - Web dashboard (requires auth in production)
 
-Run tests / manual probes
+### Admin Endpoints (require X-API-Key)
+- `GET /data` - Retrieve usage data with filtering
+- `GET /models` - List tracked models
+- `GET /ingest/tokens` - List tracking tokens
+- `POST /ingest/tokens` - Create new tracking token
+- `PATCH /ingest/tokens/<id>/active` - Toggle token status
+- `DELETE /ingest/tokens/<id>` - Delete tracking token
+- `DELETE /reset` - Clear all usage data
+- `GET /metrics` - System metrics
 
-# Ensure DB schema is up to date
-python -c "from db import migrate; migrate()"
+### Ingestion Endpoints (require X-Ingest-Key)
+- `POST /ingest` - Submit usage data with tracking token
 
-# One-off probe (uses active keys)
-python worker.py --once
+### Deprecated Endpoints
+- `POST /log` - Legacy endpoint (use `/ingest` instead)
 
-# Manual API check (requires admin key)
-curl -H "X-API-Key: $API_KEY" http://localhost:5001/keys
+### Usage Data Format
 
+```json
+{
+  "tracking_token": "abc123",
+  "model": "gpt-4o-mini-2024-07-18",
+  "prompt_tokens": 10,
+  "completion_tokens": 5,
+  "total_tokens": 15,
+  "timestamp": "2024-01-15T10:30:00Z"  // Optional, defaults to now
+}
+```
 
-⸻
+---
 
-📄 License
+## 🏗️ Architecture
 
-Add your license text here.
+### Ingest-Only Design
+Cost Guardian uses a pure client-push architecture:
 
-🤝 Contributing
+1. **Your Applications** retain their OpenAI API keys
+2. **Tracking Tokens** identify different sources/environments  
+3. **Client Code** pushes usage data to `/ingest` after each OpenAI call
+4. **Cost Guardian** aggregates, calculates costs, and displays analytics
 
-PRs and issues welcome—please open a discussion with proposed changes and rationale.
+### Security Model
+- **Admin access**: `API_KEY` for dashboard and admin endpoints
+- **Ingestion auth**: `INGEST_KEY` for server-to-server data submission  
+- **Tracking tokens**: Non-secret identifiers for usage attribution
+- **No key storage**: Your OpenAI keys never leave your applications
 
-⸻
+### Data Flow
+```
+Your App → OpenAI API → Usage Response → Cost Guardian /ingest → Dashboard
+```
 
-Cost Guardian — keep your AI costs under control. 🎯
+---
+
+## 🔧 Configuration
+
+### Environment Variables
+
+```bash
+# Server Configuration
+SERVER_PORT=5001                    # Flask server port
+ENV=development                     # development | production
+DB_FILENAME=usage_log.sqlite        # Database filename
+
+# Authentication  
+API_KEY=                            # Admin API key (leave empty to disable auth in dev)
+INGEST_KEY=your_secret_key          # Required for /ingest endpoint
+
+# CORS Configuration
+ALLOWED_ORIGINS=http://localhost:5001  # Comma-separated browser origins
+
+# Rate Limiting
+RATE_LIMIT_RPM=60                   # Admin requests per minute
+RATE_LIMIT_BURST=60                 # Burst capacity
+RATE_LIMIT_EXEMPT=/ping,/health,/dashboard  # Exempt paths
+
+# Ingestion Rate Limiting  
+INGEST_RPM=60                       # Ingestion requests per minute
+INGEST_BURST=60                     # Ingestion burst capacity
+
+# Model Configuration
+OPENAI_MODEL=gpt-4o-mini-2024-07-18 # Reference model for cost calculation
+PROVIDER=openai                     # Currently only 'openai' supported
+
+# Tracking Configuration
+TRACKING_TOKEN_LENGTH=22            # Generated token length (16-40 recommended)
+```
+
+### Production Deployment
+
+1. **Set environment to production**: `ENV=production`
+2. **Configure authentication**: Set strong `API_KEY` and `INGEST_KEY`  
+3. **Set CORS origins**: Configure `ALLOWED_ORIGINS` for your domain
+4. **Enable rate limiting**: Adjust `RATE_LIMIT_RPM` and `INGEST_RPM` as needed
+5. **Use Docker**: `docker-compose up -d` for production deployment
+
+---
+
+## 🐳 Docker Deployment
+
+The included `docker-compose.yml` provides a production-ready setup:
+
+```yaml
+services:
+  api:
+    build: .
+    ports:
+      - "5001:5001"
+    env_file: .env
+    volumes:
+      - ./data:/app/data  # Persistent database storage
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5001/health"]
+    restart: unless-stopped
+```
+
+**Commands:**
+```bash
+# Build and start
+docker-compose up -d
+
+# View logs  
+docker-compose logs -f
+
+# Stop service
+docker-compose down
+```
+
+---
+
+## 📊 Monitoring & Metrics
+
+### Health Endpoint
+`GET /health` returns service status:
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "version": "1.0.0"
+}
+```
+
+### Metrics Endpoint  
+`GET /metrics` provides operational metrics:
+
+```json
+{
+  "version": "1",
+  "env": "production", 
+  "ingest": {
+    "rpm": 60,
+    "burst": 60,
+    "auth_enabled": true
+  },
+  "counters": {
+    "ingest_success": 1250,
+    "ingest_duplicate": 5,
+    "ingest_bad_auth": 2
+  },
+  "db": {
+    "usage_rows": 1200,
+    "active_tokens": 3,
+    "last_usage_at": "2024-01-15T10:25:00Z"
+  }
+}
+```
+
+---
+
+## 🔄 Migration from v0.2.x
+
+If upgrading from the previous API key management version:
+
+1. **Backup your data**: Copy your SQLite database
+2. **Update environment**: Remove `MASTER_KEY`, `PROBE_INTERVAL_SECS`, `WORKER_HEARTBEAT_ENABLED`
+3. **Add new variables**: Set `INGEST_KEY` and adjust rate limits
+4. **Create tracking tokens**: Replace managed API keys with tracking tokens  
+5. **Update client code**: Integrate the client-push tracking snippet
+6. **Remove worker**: The background worker is no longer needed
+
+**Breaking changes in v0.3.x:**
+- `/keys/*` endpoints removed (404)
+- Worker service removed from Docker Compose
+- `MASTER_KEY` no longer required
+- Client-side integration now required for data collection
+
+---
+
+## 🏗️ Development
+
+### Project Structure
+```
+├── app.py              # Flask application and API routes
+├── db.py               # Database operations and schema  
+├── config.py           # Environment configuration
+├── calc.py             # Cost calculation utilities
+├── rate_limit.py       # Token bucket rate limiting
+├── metrics.py          # Application metrics collection
+├── templates/          # HTML dashboard template
+├── data/               # SQLite database storage
+├── requirements.txt    # Python dependencies
+├── Dockerfile          # Container build
+└── docker-compose.yml  # Multi-service orchestration
+```
+
+### Local Development
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run with auto-reload
+python app.py
+
+# Run tests (if available)
+python -m pytest
+```
+
+### Database Schema
+- `usage_log`: Usage tracking with token attribution
+- `ingest_tokens`: Tracking token management  
+- `api_keys`: Legacy table (deprecated, kept for compatibility)
+
+---
+
+## 📈 Cost Calculation
+
+Cost Guardian calculates estimates based on the configured model's pricing:
+
+- **Current rates**: Based on `gpt-4o-mini-2024-07-18` pricing
+- **Calculation**: `(prompt_tokens * input_rate + completion_tokens * output_rate) / 1M`
+- **Updates**: Modify `calc.py` when OpenAI updates pricing
+
+**Note**: Estimates are for monitoring purposes. Always verify costs in your OpenAI billing dashboard.
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature-name`
+3. Make changes and test thoroughly  
+4. Submit a pull request with clear description
+
+---
+
+## 📄 License
+
+[Add your license here]
+
+---
+
+## 🛟 Support
+
+- **Issues**: Report bugs via GitHub Issues
+- **Discussions**: Feature requests and questions welcome
+- **Security**: Report security issues privately
+
+---
+
+*Cost Guardian - Keep your OpenAI costs under control* 💰✨

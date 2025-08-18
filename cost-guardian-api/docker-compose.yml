@@ -8,23 +8,29 @@ services:
     env_file: .env
     environment:
       - DB_FILENAME=usage_log.sqlite
+    command: >
+      gunicorn app:app
+      -w 4
+      -k gthread
+      --threads 2
+      -b 0.0.0.0:5001
+      --timeout 30
+      --graceful-timeout 30
+      --keep-alive 5
+      --max-requests 2000
+      --max-requests-jitter 200
+      --forwarded-allow-ips="*"
+      --access-logfile -
+      --error-logfile -
     ports:
       - "5001:5001"
     volumes:
       - ./data:/app/data  # Persistent database storage
-    # Optional: rely on Dockerfile's HEALTHCHECK, so omit here
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
-  worker:
-    build: .
-    container_name: cost-guardian-worker
-    env_file: .env
-    environment:
-      - DB_FILENAME=usage_log.sqlite
-    command: ["python", "worker.py"]
-    depends_on:
-      api:
-        condition: service_healthy
-    volumes:
-      - ./data:/app/data  # Persistent database storage
-    restart: unless-stopped
