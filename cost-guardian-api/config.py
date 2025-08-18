@@ -4,17 +4,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# OPENAI_API_KEY no longer used - keys managed via encrypted dashboard storage
+# OpenAI model configuration (used for cost calculation reference)
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini-2024-07-18")
-PROBE_INTERVAL_SECS = int(os.getenv("PROBE_INTERVAL_SECS", "300"))
 SERVER_PORT = int(os.getenv("SERVER_PORT", "5001"))
-HEARTBEAT_PROMPT = os.getenv("HEARTBEAT_PROMPT", "ping")
 
 # Auth config
 API_KEY = os.getenv("API_KEY", "")
-
-# Encryption config
-MASTER_KEY = os.getenv("MASTER_KEY", "")
 
 # Provider config
 PROVIDER = os.getenv("PROVIDER", "openai")
@@ -22,15 +17,12 @@ PROVIDER = os.getenv("PROVIDER", "openai")
 # Rate limiting config
 RATE_LIMIT_RPM = int(os.getenv("RATE_LIMIT_RPM", "60"))
 RATE_LIMIT_BURST = int(os.getenv("RATE_LIMIT_BURST", os.getenv("RATE_LIMIT_RPM", "60")))
-RATE_LIMIT_EXEMPT = [path.strip() for path in os.getenv("RATE_LIMIT_EXEMPT", "/ping,/dashboard").split(",") if path.strip()]
+RATE_LIMIT_EXEMPT = [path.strip() for path in os.getenv("RATE_LIMIT_EXEMPT", "/ping,/health,/dashboard").split(",") if path.strip()]
 
 # Ingestion config
 INGEST_KEY = os.getenv("INGEST_KEY", "")
 INGEST_RPM = int(os.getenv("INGEST_RPM", str(RATE_LIMIT_RPM)))
 INGEST_BURST = int(os.getenv("INGEST_BURST", str(RATE_LIMIT_BURST)))
-
-# Worker config
-WORKER_HEARTBEAT_ENABLED = os.getenv("WORKER_HEARTBEAT_ENABLED", "false").lower() == "true"
 
 # Tracking token config
 TRACKING_TOKEN_LENGTH = int(os.getenv("TRACKING_TOKEN_LENGTH", "22"))
