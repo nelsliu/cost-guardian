@@ -562,6 +562,15 @@ def ingest_usage():
             increment_ingest_validation_error()
             return json_error(400, "cost_usd must be a number")
         
+        # Server-side cost calculation when cost not provided
+        if cost_usd == 0.0 and (prompt_tokens > 0 or completion_tokens > 0):
+            from calc import compute_cost
+            usage_for_calc = {
+                'prompt_tokens': prompt_tokens,
+                'completion_tokens': completion_tokens
+            }
+            cost_usd = compute_cost(usage_for_calc)
+        
         # Handle timestamp - use server time if missing
         timestamp = normalized_data.get('timestamp')
         if not timestamp:
