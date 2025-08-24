@@ -615,9 +615,135 @@
 
                 <div id="python-tab" class="tab-content">
                     <div class="snippet-description">
-                        Integrate Cost Guardian into your Python applications using the requests library.
+                        Integrate Cost Guardian into your Python applications. Choose from basic integration or the decorator pattern that wraps existing OpenAI functions.
+                    </div>
+
+                    <div class="snippet-section">
+                        <h4>Environment Configuration</h4>
+                        <div class="code-block">
+                            <button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button>
+                            <pre># Add to your .env file
+CG_BASE_URL=${window.location.origin}
+CG_INGEST_KEY=YOUR_INGEST_KEY  
+CG_TRACKING_TOKEN=TRACKING_TOKEN
+CG_DEBUG=false  # Set to true for development debugging</pre>
+                        </div>
                     </div>
                     
+                    <div class="snippet-section">
+                        <h4>Decorator Pattern (Recommended)</h4>
+                        <div class="code-block">
+                            <button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button>
+                            <pre id="python-decorator"># ---- cost_guardian_snippet.py (paste anywhere in your codebase) ----
+import os, uuid, time, requests, functools, inspect, threading
+from datetime import datetime, timezone
+
+CG_BASE_URL       = os.getenv("CG_BASE_URL", "${window.location.origin}")
+CG_INGEST_KEY     = os.getenv("CG_INGEST_KEY", "YOUR_INGEST_KEY")
+CG_TRACKING_TOKEN = os.getenv("CG_TRACKING_TOKEN", "TRACKING_TOKEN")
+CG_DEBUG          = os.getenv("CG_DEBUG", "false").lower() == "true"
+
+def _iso_now():
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+def _ingest_openai_usage(resp, model_hint=None):
+    try:
+        usage = getattr(resp, "usage", None) or (resp.get("usage") if isinstance(resp, dict) else {}) or {}
+        pt = int(usage.get("prompt_tokens") or 0)
+        ct = int(usage.get("completion_tokens") or 0)
+        tt = int(usage.get("total_tokens") or (pt + ct))
+        if tt == 0:
+            if CG_DEBUG: print("[CG] skip ingest: no tokens")
+            return
+
+        model = getattr(resp, "model", None) or (resp.get("model") if isinstance(resp, dict) else None) or model_hint
+        event_id = getattr(resp, "id", None) or (resp.get("id") if isinstance(resp, dict) else None) or str(uuid.uuid4())
+
+        payload = {
+            "tracking_token": CG_TRACKING_TOKEN,
+            "provider": "openai",
+            "model": model,
+            "prompt_tokens": pt,
+            "completion_tokens": ct,
+            "total_tokens": tt,
+            "timestamp": _iso_now(),
+            "event_id": event_id,
+        }
+
+        for attempt in range(3):
+            r = requests.post(
+                f"{CG_BASE_URL}/ingest",
+                headers={"Content-Type": "application/json", "X-Ingest-Key": CG_INGEST_KEY},
+                json=payload,
+                timeout=10,
+            )
+            if r.status_code in (200, 201):
+                if CG_DEBUG: print("[CG] ingest ok", r.status_code)
+                return
+            if r.status_code not in (429, 500, 502, 503, 504):
+                if CG_DEBUG: print("[CG] ingest fail", r.status_code, r.text)
+                return
+            delay = int(r.headers.get("Retry-After", attempt + 1))
+            time.sleep(delay)
+    except Exception as e:
+        if CG_DEBUG: print("[CG] ingest exception:", e)
+
+def track_cost(func):
+    """
+    Decorator for non-streaming OpenAI calls.
+    Works with sync or async functions. Never throws.
+    """
+    if inspect.iscoroutinefunction(func):
+        async def awrapper(*args, **kwargs):
+            resp = await func(*args, **kwargs)
+            # Don't block event loop: run ingestion in a background thread
+            threading.Thread(target=_ingest_openai_usage, args=(resp, kwargs.get("model")), daemon=True).start()
+            return resp
+        return functools.wraps(func)(awrapper)
+    else:
+        @functools.wraps(func)
+        def swrapper(*args, **kwargs):
+            resp = func(*args, **kwargs)
+            _ingest_openai_usage(resp, model_hint=kwargs.get("model"))
+            return resp
+        return swrapper</pre>
+                        </div>
+                        
+                        <div class="snippet-notes">
+                            <strong>Usage Example:</strong> Wrap your existing OpenAI functions with the decorator
+                        </div>
+                        
+                        <div class="code-block">
+                            <button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button>
+                            <pre id="python-decorator-usage">from openai import OpenAI
+from cost_guardian_snippet import track_cost
+
+client = OpenAI()
+
+@track_cost
+def ask_heartbeat():
+    return client.chat.completions.create(
+        model="gpt-4o-mini-2024-07-18",
+        messages=[{"role": "user", "content": "Say 'heartbeat'"}],
+        max_tokens=5,
+        temperature=0,
+    )
+
+# Works with async functions too
+@track_cost
+async def async_ask_heartbeat():
+    return await client.chat.completions.create(
+        model="gpt-4o-mini-2024-07-18",
+        messages=[{"role": "user", "content": "Say 'heartbeat'"}],
+        max_tokens=5,
+        temperature=0,
+    )
+
+# Your existing code unchanged - just add the decorator
+_ = ask_heartbeat()</pre>
+                        </div>
+                    </div>
+
                     <div class="snippet-section">
                         <h4>Basic Integration</h4>
                         <div class="code-block">
@@ -626,15 +752,16 @@
 import json
 from datetime import datetime, timezone
 
-def log_openai_usage(tracking_token, model, prompt_tokens, completion_tokens, cost_usd, event_id=None):
+def log_openai_usage(tracking_token, model, prompt_tokens, completion_tokens, event_id=None):
     """Log OpenAI usage to Cost Guardian"""
     
     payload = {
         "tracking_token": tracking_token,
+        "provider": "openai",
         "model": model,
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
-        "cost_usd": cost_usd,
+        "total_tokens": prompt_tokens + completion_tokens,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
     
@@ -665,96 +792,142 @@ log_openai_usage(
     model="gpt-4o-mini-2024-07-18",
     prompt_tokens=100,
     completion_tokens=50,
-    cost_usd=0.002250,
     event_id="unique-event-123"  # Optional for idempotency
 )</pre>
                         </div>
                     </div>
 
-                    <div class="snippet-section">
-                        <h4>OpenAI Integration Example</h4>
-                        <div class="code-block">
-                            <button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button>
-                            <pre id="python-openai">import openai
-import requests
-from datetime import datetime, timezone
-
-# Configure OpenAI and Cost Guardian
-openai.api_key = "your-openai-api-key"
-COST_GUARDIAN_URL = "${window.location.origin}/ingest"
-INGEST_KEY = "YOUR_INGEST_KEY"
-TRACKING_TOKEN = "TRACKING_TOKEN"
-
-def chat_with_logging(messages, model="gpt-4o-mini-2024-07-18"):
-    """Make OpenAI chat completion and log usage to Cost Guardian"""
-    
-    # Make OpenAI request
-    response = openai.chat.completions.create(
-        model=model,
-        messages=messages
-    )
-    
-    # Extract usage information
-    usage = response.usage
-    
-    # Log to Cost Guardian
-    log_payload = {
-        "tracking_token": TRACKING_TOKEN,
-        "model": model,
-        "prompt_tokens": usage.prompt_tokens,
-        "completion_tokens": usage.completion_tokens,
-        "total_tokens": usage.total_tokens,
-        "cost_usd": calculate_cost(usage, model),  # Implement your cost calculation
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "event_id": response.id  # Use OpenAI response ID for idempotency
-    }
-    
-    requests.post(
-        COST_GUARDIAN_URL,
-        headers={
-            "Content-Type": "application/json",
-            "X-Ingest-Key": INGEST_KEY
-        },
-        json=log_payload
-    )
-    
-    return response
-
-def calculate_cost(usage, model):
-    """Calculate cost based on OpenAI pricing"""
-    # Example pricing for gpt-4o-mini-2024-07-18
-    prompt_cost_per_1k = 0.000150
-    completion_cost_per_1k = 0.000600
-    
-    prompt_cost = (usage.prompt_tokens / 1000) * prompt_cost_per_1k
-    completion_cost = (usage.completion_tokens / 1000) * completion_cost_per_1k
-    
-    return prompt_cost + completion_cost</pre>
-                        </div>
-                    </div>
-
                     <div class="snippet-notes">
                         <strong>Requirements:</strong> <code>pip install requests openai</code><br>
-                        <strong>Note:</strong> Update the cost calculation function with current OpenAI pricing for your models.
+                        <strong>Note:</strong> Cost calculation is handled server-side. Set <code>CG_DEBUG=true</code> for development troubleshooting.
                     </div>
                 </div>
 
                 <div id="nodejs-tab" class="tab-content">
                     <div class="snippet-description">
-                        Integrate Cost Guardian into your Node.js applications using fetch or axios.
+                        Integrate Cost Guardian into your Node.js applications. Choose from basic integration or the wrapper function that works with existing OpenAI calls.
+                    </div>
+
+                    <div class="snippet-section">
+                        <h4>Environment Configuration</h4>
+                        <div class="code-block">
+                            <button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button>
+                            <pre># Add to your .env file
+CG_BASE_URL=${window.location.origin}
+CG_INGEST_KEY=YOUR_INGEST_KEY  
+CG_TRACKING_TOKEN=TRACKING_TOKEN
+CG_DEBUG=false  # Set to true for development debugging</pre>
+                        </div>
                     </div>
                     
                     <div class="snippet-section">
-                        <h4>Basic Integration (Node.js 18+)</h4>
+                        <h4>Wrapper Function (Recommended)</h4>
                         <div class="code-block">
                             <button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button>
-                            <pre id="nodejs-basic">async function logOpenAIUsage(trackingToken, model, promptTokens, completionTokens, costUsd, eventId = null) {
+                            <pre id="nodejs-wrapper">// ---- costGuardianSnippet.js ----
+let fetchFn = globalThis.fetch;
+if (!fetchFn) {
+  try { fetchFn = require("node-fetch"); }
+  catch { /* leave undefined; we'll warn in debug if used */ }
+}
+
+const { randomBytes, randomUUID: nodeRandomUUID } = require("node:crypto");
+const genId = () =>
+  (globalThis.crypto && globalThis.crypto.randomUUID)
+    ? globalThis.crypto.randomUUID()
+    : (nodeRandomUUID ? nodeRandomUUID() : randomBytes(16).toString("hex"));
+
+const CG_BASE_URL = process.env.CG_BASE_URL || "${window.location.origin}";
+const CG_INGEST_KEY = process.env.CG_INGEST_KEY || "YOUR_INGEST_KEY";
+const CG_TRACKING_TOKEN = process.env.CG_TRACKING_TOKEN || "TRACKING_TOKEN";
+const CG_DEBUG = String(process.env.CG_DEBUG || "false").toLowerCase() === "true";
+
+async function ingestOpenAIUsage(resp, modelHint) {
+  try {
+    const usage = resp?.usage || {};
+    const pt = Number(usage.prompt_tokens || 0);
+    const ct = Number(usage.completion_tokens || 0);
+    const tt = Number(usage.total_tokens || (pt + ct));
+    if (!tt) { if (CG_DEBUG) console.warn("[CG] skip ingest: no tokens"); return; }
+
+    const payload = {
+      tracking_token: CG_TRACKING_TOKEN,
+      provider: "openai",
+      model: resp?.model || modelHint,
+      prompt_tokens: pt,
+      completion_tokens: ct,
+      total_tokens: tt,
+      timestamp: new Date().toISOString(),
+      event_id: resp?.id || genId(),
+    };
+
+    if (!fetchFn) { if (CG_DEBUG) console.warn("[CG] fetch not available; install node-fetch"); return; }
+
+    for (let a = 0; a < 3; a++) {
+      const r = await fetchFn(`${CG_BASE_URL}/ingest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Ingest-Key": CG_INGEST_KEY },
+        body: JSON.stringify(payload),
+      });
+      if (r.status === 200 || r.status === 201) { if (CG_DEBUG) console.log("[CG] ingest ok", r.status); return; }
+      if (![429, 500, 502, 503, 504].includes(r.status)) { if (CG_DEBUG) console.warn("[CG] ingest fail", r.status); return; }
+      const ra = Number(r.headers.get("retry-after")) || (a + 1);
+      await new Promise(res => setTimeout(res, ra * 1000));
+    }
+  } catch (e) {
+    if (CG_DEBUG) console.warn("[CG] ingest exception:", e);
+  }
+}
+
+// Drop-in wrapper for non-streaming Chat Completions
+async function trackedChatCompletion(openai, createArgs) {
+  const resp = await openai.chat.completions.create(createArgs);
+  ingestOpenAIUsage(resp, createArgs?.model); // fire-and-forget
+  return resp;
+}
+
+module.exports = { trackedChatCompletion };</pre>
+                        </div>
+                        
+                        <div class="snippet-notes">
+                            <strong>Usage Example:</strong> Replace your OpenAI calls with the wrapper function
+                        </div>
+                        
+                        <div class="code-block">
+                            <button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button>
+                            <pre id="nodejs-wrapper-usage">const OpenAI = require("openai");
+const { trackedChatCompletion } = require("./costGuardianSnippet");
+
+const openai = new OpenAI();
+
+// Instead of: openai.chat.completions.create(args)
+// Use: trackedChatCompletion(openai, args)
+
+(async () => {
+  const response = await trackedChatCompletion(openai, {
+    model: "gpt-4o-mini-2024-07-18",
+    messages: [{ role: "user", content: "Say 'heartbeat'" }],
+    max_tokens: 5,
+    temperature: 0,
+  });
+  
+  console.log(response.choices[0].message.content);
+})();</pre>
+                        </div>
+                    </div>
+
+                    <div class="snippet-section">
+                        <h4>Basic Integration</h4>
+                        <div class="code-block">
+                            <button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button>
+                            <pre id="nodejs-basic">async function logOpenAIUsage(trackingToken, model, promptTokens, completionTokens, eventId = null) {
   const payload = {
     tracking_token: trackingToken,
+    provider: "openai",
     model: model,
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
-    cost_usd: costUsd,
+    total_tokens: promptTokens + completionTokens,
     timestamp: new Date().toISOString()
   };
 
@@ -792,89 +965,14 @@ await logOpenAIUsage(
   "gpt-4o-mini-2024-07-18",
   100,
   50,
-  0.002250,
   "unique-event-123"  // Optional for idempotency
 );</pre>
                         </div>
                     </div>
 
-                    <div class="snippet-section">
-                        <h4>OpenAI Integration Example</h4>
-                        <div class="code-block">
-                            <button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button>
-                            <pre id="nodejs-openai">import OpenAI from 'openai';
-
-const openai = new OpenAI({
-  apiKey: 'your-openai-api-key'
-});
-
-const COST_GUARDIAN_URL = "${window.location.origin}/ingest";
-const INGEST_KEY = "YOUR_INGEST_KEY";
-const TRACKING_TOKEN = "TRACKING_TOKEN";
-
-async function chatWithLogging(messages, model = "gpt-4o-mini-2024-07-18") {
-  try {
-    // Make OpenAI request
-    const response = await openai.chat.completions.create({
-      model: model,
-      messages: messages
-    });
-
-    // Extract usage information
-    const usage = response.usage;
-
-    // Log to Cost Guardian
-    const logPayload = {
-      tracking_token: TRACKING_TOKEN,
-      model: model,
-      prompt_tokens: usage.prompt_tokens,
-      completion_tokens: usage.completion_tokens,
-      total_tokens: usage.total_tokens,
-      cost_usd: calculateCost(usage, model),
-      timestamp: new Date().toISOString(),
-      event_id: response.id  // Use OpenAI response ID for idempotency
-    };
-
-    await fetch(COST_GUARDIAN_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Ingest-Key": INGEST_KEY
-      },
-      body: JSON.stringify(logPayload)
-    });
-
-    return response;
-  } catch (error) {
-    console.error("Error in chat with logging:", error);
-    throw error;
-  }
-}
-
-function calculateCost(usage, model) {
-  // Example pricing for gpt-4o-mini-2024-07-18
-  const promptCostPer1k = 0.000150;
-  const completionCostPer1k = 0.000600;
-  
-  const promptCost = (usage.prompt_tokens / 1000) * promptCostPer1k;
-  const completionCost = (usage.completion_tokens / 1000) * completionCostPer1k;
-  
-  return promptCost + completionCost;
-}
-
-// Example usage
-const messages = [
-  { role: "user", content: "Hello, how are you?" }
-];
-
-const response = await chatWithLogging(messages);
-console.log(response.choices[0].message.content);</pre>
-                        </div>
-                    </div>
-
                     <div class="snippet-notes">
-                        <strong>Requirements:</strong> <code>npm install openai</code><br>
-                        <strong>Note:</strong> For Node.js versions before 18, use <code>node-fetch</code> or <code>axios</code> instead of native fetch.
+                        <strong>Requirements:</strong> <code>npm install openai</code> (for Node.js &lt; 18, also: <code>npm install node-fetch</code>)<br>
+                        <strong>Note:</strong> Cost calculation is handled server-side. Set <code>CG_DEBUG=true</code> for development troubleshooting.
                     </div>
                 </div>
             </div>
@@ -1799,21 +1897,129 @@ console.log(response.choices[0].message.content);</pre>
             }
 
             // Update Python examples
+            const pythonDecorator = document.getElementById('python-decorator');
+            if (pythonDecorator) {
+                pythonDecorator.textContent = `# ---- cost_guardian_snippet.py (paste anywhere in your codebase) ----
+import os, uuid, time, requests, functools, inspect, threading
+from datetime import datetime, timezone
+
+CG_BASE_URL       = os.getenv("CG_BASE_URL", "${baseUrl}")
+CG_INGEST_KEY     = os.getenv("CG_INGEST_KEY", "YOUR_INGEST_KEY")
+CG_TRACKING_TOKEN = os.getenv("CG_TRACKING_TOKEN", "${token}")
+CG_DEBUG          = os.getenv("CG_DEBUG", "false").lower() == "true"
+
+def _iso_now():
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+def _ingest_openai_usage(resp, model_hint=None):
+    try:
+        usage = getattr(resp, "usage", None) or (resp.get("usage") if isinstance(resp, dict) else {}) or {}
+        pt = int(usage.get("prompt_tokens") or 0)
+        ct = int(usage.get("completion_tokens") or 0)
+        tt = int(usage.get("total_tokens") or (pt + ct))
+        if tt == 0:
+            if CG_DEBUG: print("[CG] skip ingest: no tokens")
+            return
+
+        model = getattr(resp, "model", None) or (resp.get("model") if isinstance(resp, dict) else None) or model_hint
+        event_id = getattr(resp, "id", None) or (resp.get("id") if isinstance(resp, dict) else None) or str(uuid.uuid4())
+
+        payload = {
+            "tracking_token": CG_TRACKING_TOKEN,
+            "provider": "openai",
+            "model": model,
+            "prompt_tokens": pt,
+            "completion_tokens": ct,
+            "total_tokens": tt,
+            "timestamp": _iso_now(),
+            "event_id": event_id,
+        }
+
+        for attempt in range(3):
+            r = requests.post(
+                f"{CG_BASE_URL}/ingest",
+                headers={"Content-Type": "application/json", "X-Ingest-Key": CG_INGEST_KEY},
+                json=payload,
+                timeout=10,
+            )
+            if r.status_code in (200, 201):
+                if CG_DEBUG: print("[CG] ingest ok", r.status_code)
+                return
+            if r.status_code not in (429, 500, 502, 503, 504):
+                if CG_DEBUG: print("[CG] ingest fail", r.status_code, r.text)
+                return
+            delay = int(r.headers.get("Retry-After", attempt + 1))
+            time.sleep(delay)
+    except Exception as e:
+        if CG_DEBUG: print("[CG] ingest exception:", e)
+
+def track_cost(func):
+    """
+    Decorator for non-streaming OpenAI calls.
+    Works with sync or async functions. Never throws.
+    """
+    if inspect.iscoroutinefunction(func):
+        async def awrapper(*args, **kwargs):
+            resp = await func(*args, **kwargs)
+            # Don't block event loop: run ingestion in a background thread
+            threading.Thread(target=_ingest_openai_usage, args=(resp, kwargs.get("model")), daemon=True).start()
+            return resp
+        return functools.wraps(func)(awrapper)
+    else:
+        @functools.wraps(func)
+        def swrapper(*args, **kwargs):
+            resp = func(*args, **kwargs)
+            _ingest_openai_usage(resp, model_hint=kwargs.get("model"))
+            return resp
+        return swrapper`;
+            }
+
+            const pythonDecoratorUsage = document.getElementById('python-decorator-usage');
+            if (pythonDecoratorUsage) {
+                pythonDecoratorUsage.textContent = `from openai import OpenAI
+from cost_guardian_snippet import track_cost
+
+client = OpenAI()
+
+@track_cost
+def ask_heartbeat():
+    return client.chat.completions.create(
+        model="gpt-4o-mini-2024-07-18",
+        messages=[{"role": "user", "content": "Say 'heartbeat'"}],
+        max_tokens=5,
+        temperature=0,
+    )
+
+# Works with async functions too
+@track_cost
+async def async_ask_heartbeat():
+    return await client.chat.completions.create(
+        model="gpt-4o-mini-2024-07-18",
+        messages=[{"role": "user", "content": "Say 'heartbeat'"}],
+        max_tokens=5,
+        temperature=0,
+    )
+
+# Your existing code unchanged - just add the decorator
+_ = ask_heartbeat()`;
+            }
+
             const pythonBasic = document.getElementById('python-basic');
             if (pythonBasic) {
                 pythonBasic.textContent = `import requests
 import json
 from datetime import datetime, timezone
 
-def log_openai_usage(tracking_token, model, prompt_tokens, completion_tokens, cost_usd, event_id=None):
+def log_openai_usage(tracking_token, model, prompt_tokens, completion_tokens, event_id=None):
     """Log OpenAI usage to Cost Guardian"""
     
     payload = {
         "tracking_token": tracking_token,
+        "provider": "openai",
         "model": model,
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
-        "cost_usd": cost_usd,
+        "total_tokens": prompt_tokens + completion_tokens,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
     
@@ -1844,7 +2050,6 @@ log_openai_usage(
     model="gpt-4o-mini-2024-07-18",
     prompt_tokens=100,
     completion_tokens=50,
-    cost_usd=0.002250,
     event_id="unique-event-123"  # Optional for idempotency
 )`;
             }
@@ -1909,15 +2114,105 @@ def calculate_cost(usage, model):
             }
 
             // Update Node.js examples
+            const nodejsWrapper = document.getElementById('nodejs-wrapper');
+            if (nodejsWrapper) {
+                nodejsWrapper.textContent = `// ---- costGuardianSnippet.js ----
+let fetchFn = globalThis.fetch;
+if (!fetchFn) {
+  try { fetchFn = require("node-fetch"); }
+  catch { /* leave undefined; we'll warn in debug if used */ }
+}
+
+const { randomBytes, randomUUID: nodeRandomUUID } = require("node:crypto");
+const genId = () =>
+  (globalThis.crypto && globalThis.crypto.randomUUID)
+    ? globalThis.crypto.randomUUID()
+    : (nodeRandomUUID ? nodeRandomUUID() : randomBytes(16).toString("hex"));
+
+const CG_BASE_URL = process.env.CG_BASE_URL || "${baseUrl}";
+const CG_INGEST_KEY = process.env.CG_INGEST_KEY || "YOUR_INGEST_KEY";
+const CG_TRACKING_TOKEN = process.env.CG_TRACKING_TOKEN || "${token}";
+const CG_DEBUG = String(process.env.CG_DEBUG || "false").toLowerCase() === "true";
+
+async function ingestOpenAIUsage(resp, modelHint) {
+  try {
+    const usage = resp?.usage || {};
+    const pt = Number(usage.prompt_tokens || 0);
+    const ct = Number(usage.completion_tokens || 0);
+    const tt = Number(usage.total_tokens || (pt + ct));
+    if (!tt) { if (CG_DEBUG) console.warn("[CG] skip ingest: no tokens"); return; }
+
+    const payload = {
+      tracking_token: CG_TRACKING_TOKEN,
+      provider: "openai",
+      model: resp?.model || modelHint,
+      prompt_tokens: pt,
+      completion_tokens: ct,
+      total_tokens: tt,
+      timestamp: new Date().toISOString(),
+      event_id: resp?.id || genId(),
+    };
+
+    if (!fetchFn) { if (CG_DEBUG) console.warn("[CG] fetch not available; install node-fetch"); return; }
+
+    for (let a = 0; a < 3; a++) {
+      const r = await fetchFn(\`\${CG_BASE_URL}/ingest\`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Ingest-Key": CG_INGEST_KEY },
+        body: JSON.stringify(payload),
+      });
+      if (r.status === 200 || r.status === 201) { if (CG_DEBUG) console.log("[CG] ingest ok", r.status); return; }
+      if (![429, 500, 502, 503, 504].includes(r.status)) { if (CG_DEBUG) console.warn("[CG] ingest fail", r.status); return; }
+      const ra = Number(r.headers.get("retry-after")) || (a + 1);
+      await new Promise(res => setTimeout(res, ra * 1000));
+    }
+  } catch (e) {
+    if (CG_DEBUG) console.warn("[CG] ingest exception:", e);
+  }
+}
+
+// Drop-in wrapper for non-streaming Chat Completions
+async function trackedChatCompletion(openai, createArgs) {
+  const resp = await openai.chat.completions.create(createArgs);
+  ingestOpenAIUsage(resp, createArgs?.model); // fire-and-forget
+  return resp;
+}
+
+module.exports = { trackedChatCompletion };`;
+            }
+
+            const nodejsWrapperUsage = document.getElementById('nodejs-wrapper-usage');
+            if (nodejsWrapperUsage) {
+                nodejsWrapperUsage.textContent = `const OpenAI = require("openai");
+const { trackedChatCompletion } = require("./costGuardianSnippet");
+
+const openai = new OpenAI();
+
+// Instead of: openai.chat.completions.create(args)
+// Use: trackedChatCompletion(openai, args)
+
+(async () => {
+  const response = await trackedChatCompletion(openai, {
+    model: "gpt-4o-mini-2024-07-18",
+    messages: [{ role: "user", content: "Say 'heartbeat'" }],
+    max_tokens: 5,
+    temperature: 0,
+  });
+  
+  console.log(response.choices[0].message.content);
+})();`;
+            }
+
             const nodejsBasic = document.getElementById('nodejs-basic');
             if (nodejsBasic) {
-                nodejsBasic.textContent = `async function logOpenAIUsage(trackingToken, model, promptTokens, completionTokens, costUsd, eventId = null) {
+                nodejsBasic.textContent = `async function logOpenAIUsage(trackingToken, model, promptTokens, completionTokens, eventId = null) {
   const payload = {
     tracking_token: trackingToken,
+    provider: "openai",
     model: model,
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
-    cost_usd: costUsd,
+    total_tokens: promptTokens + completionTokens,
     timestamp: new Date().toISOString()
   };
 
@@ -1955,7 +2250,6 @@ await logOpenAIUsage(
   "gpt-4o-mini-2024-07-18",
   100,
   50,
-  0.002250,
   "unique-event-123"  // Optional for idempotency
 );`;
             }
