@@ -1,5 +1,4 @@
 import os
-import logging
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -45,6 +44,4 @@ DATA_DIR = os.getenv(
 DB_FILENAME = os.getenv("DB_FILENAME", "usage_log.sqlite")
 DB_PATH = os.getenv("DB_PATH", os.path.join(DATA_DIR, DB_FILENAME))
 
-# Log resolved database path on startup
-logging.basicConfig(level=logging.INFO)
-logging.info("Database path resolved to: %s", DB_PATH)
+# Note: Logging is configured in the application entrypoint (app.py or server runner).

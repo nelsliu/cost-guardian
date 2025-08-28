@@ -1,221 +1,70 @@
 Cost Guardian 💰
 
-Real-time OpenAI API cost monitoring with secure multi-key management
+Ingest-first OpenAI usage and cost tracking with per-token attribution and a lightweight admin dashboard.
 
-Cost Guardian is a Flask-based web app that helps you monitor OpenAI API usage and costs in real time. It includes encrypted API key storage, background usage collection, rate limiting, and a simple web dashboard.
+Cost Guardian is an ingest-first tracker: your app keeps using the OpenAI SDK as usual, and you post usage (tokens, model, cost) to `POST /ingest` with a tracking token. The dashboard (auth required in production) shows per-token usage, filters, totals, CSV export, and metrics.
 
-⸻
+—
 
-✨ Features
+What’s included
 
-🔐 Secure multi-key management
-	•	Encrypted at rest with Fernet (symmetric encryption)
-	•	Multiple keys per deployment, each with a label
-	•	Activate/disable keys without deleting
-	•	Masked display—plaintext keys never returned or logged
+- Tracking tokens: Generate tokens per app/env and attribute usage server-side.
+- Ingest key: Server-to-server auth for `POST /ingest` via `X-Ingest-Key`.
+- Admin auth: Protects dashboard/data via `X-API-Key` (required in production).
+- Rate limiting: Separate buckets for admin endpoints and ingest.
+- Persistence: SQLite at `/app/data/usage_log.sqlite` (Docker volume-safe).
+- Metrics: `GET /metrics` includes counters and ingest/DB health.
 
-📊 Automated usage tracking
-	•	Background worker probes OpenAI regularly
-	•	Cost estimates using the configured model’s pricing
-	•	Per-key attribution for usage and cost
-	•	Health flag: last successful probe per key
+—
 
-🎛️ Dashboard
-	•	Live table of usage rows
-	•	Totals row (tokens & $)
-	•	Manage API keys (add/activate/delete)
-	•	Auth UI (enter admin API key once; “remember” option)
+Quick start (Docker)
 
-🔒 Production hardening
-	•	Admin auth via X-API-Key
-	•	Rate limiting (token bucket; per API key or IP)
-	•	CORS controls (allowed origins)
-	•	Environment-aware errors (clean JSON in prod)
+1) Configure environment (minimal):
 
-🐳 Docker support
-	•	Dockerfile + docker compose
-	•	Health checks
-	•	Persistent volume for database
+API_KEY=your_admin_key            # required for production dashboard/data
+INGEST_KEY=your_ingest_secret     # required for POST /ingest
+ENV=development                   # or production
+ALLOWED_ORIGINS=http://localhost:5001
 
-⸻
+2) Run:
 
-🚀 Quick Start
+docker compose up -d
 
-Prerequisites
-	•	Python 3.9+
-	•	(Optional) Docker & Docker Compose
-	•	An OpenAI account (you add API keys in the dashboard—not in .env)
+3) Open dashboard:
 
-1) Clone & install (no Docker)
+http://localhost:5001/dashboard
 
-git clone <repository-url>
+—
+
+Quick start (local)
+
 cd cost-guardian-api
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
-2) Configure
-
-Copy the example env and set required values:
-
-cp .env.example .env
-
-Essential configuration:
-
-# Required
-MASTER_KEY=your_32_byte_fernet_key_here           # Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-API_KEY=your_secret_admin_key_here                # For admin requests to protected endpoints
-ENV=production                                    # production | development
-ALLOWED_ORIGINS=https://your-domain.com           # Comma-separated list of allowed browser origins
-
-# OpenAI + worker
-OPENAI_MODEL=gpt-4o-mini-2024-07-18
-PROBE_INTERVAL_SECS=300
-
-# Rate limiting (optional; per process)
-RATE_LIMIT_RPM=60
-RATE_LIMIT_BURST=60
-RATE_LIMIT_EXEMPT=/ping,/dashboard,/health
-
-Notes
-	•	Do not change MASTER_KEY after adding keys; previously stored keys become unrecoverable.
-	•	In development you can set ENV=development and ALLOWED_ORIGINS=http://127.0.0.1:5001.
-
-3) Run it
-
-Option A — Python
-
-# Terminal 1 (API)
+cp .env.example .env  # set API_KEY, INGEST_KEY, ENV, etc.
 python app.py
 
-# Terminal 2 (worker)
-python worker.py
+—
 
-Option B — Docker
+Integration flow
 
-docker compose up -d
+- Create a tracking token in the dashboard.
+- In your app, after each OpenAI call, post a JSON payload to `POST /ingest`:
+  - Headers: `X-Ingest-Key: <INGEST_KEY>`
+  - Body: `{ tracking_token, model, prompt_tokens, completion_tokens, total_tokens, cost_usd?, event_id? }`
+- The server calculates cost when omitted and de-duplicates by `event_id`.
 
-4) Open the dashboard
+Security notes
 
-Visit: http://localhost:5001/dashboard
+- Never log or store customer API keys here — only identifiers (tracking tokens) are used.
+- Keep `INGEST_KEY` secret; the dashboard never exposes it.
+- Admin endpoints require `X-API-Key` when `ENV=production`.
 
-From the dashboard you can:
-	•	Add your OpenAI API keys (stored encrypted)
-	•	See live usage rows & totals
-	•	Activate/deactivate or delete keys
+—
 
-⸻
+More details
 
-🔧 How it works
-	1.	Admin auth: Protected endpoints require X-API-Key: <your_admin_key>. The dashboard HTML loads, then JS calls protected endpoints with your key.
-	2.	Keys at rest: Your OpenAI keys are encrypted with MASTER_KEY and never returned in plaintext.
-	3.	Background worker: Probes the OpenAI API on a schedule and logs per-key usage to SQLite.
-	4.	Rate limiting: Token bucket—configurable RPM & burst. In auth mode it limits per API key; in no-auth mode it limits per IP.
-Limits are per process (in-memory). Multiple API replicas mean limits apply per replica.
-
-⸻
-
-📡 API Endpoints
-
-Public
-	•	GET /ping — lightweight liveness
-	•	GET /health — health probe
-	•	GET /dashboard — dashboard HTML (data calls are protected)
-
-Protected (require X-API-Key)
-	•	GET /data — list usage rows
-	•	DELETE /reset — clear usage data
-	•	GET /keys — list keys (masked)
-	•	POST /keys — add key {label, key, provider}
-	•	PATCH /keys/<id>/active — activate/deactivate
-	•	DELETE /keys/<id> — delete key
-	•	GET /metrics — system metrics & health
-
-Example /metrics
-
-curl -s -H "X-API-Key: $API_KEY" http://localhost:5001/metrics | jq
-
-Example response (fields abbreviated):
-
-{
-  "version": "1",
-  "env": "production",
-  "debug": false,
-  "rate_limit": {"rpm": 60, "burst": 60, "exempt_paths": ["/ping","/dashboard","/health"]},
-  "counters": {"rate_limit_hits": 2},
-  "db": {
-    "usage_rows": 1250,
-    "active_keys": 3,
-    "last_usage_at": "2025-08-11T10:30:45+00:00",
-    "last_key_ok_at": "2025-08-11T10:30:12+00:00"
-  },
-  "worker": {"probe_interval_secs": 300, "healthy": true}
-}
-
-
-⸻
-
-🐳 Docker deployment
-
-Development
-
-docker compose up -d
-
-Production (example)
-
-export ENV=production
-export MASTER_KEY="your_master_key"
-export API_KEY="your_admin_key"
-export ALLOWED_ORIGINS="https://your-domain.com"
-
-docker compose up -d
-
-Security tips
-	•	Provide secrets via env vars or Docker secrets (not baked into images)
-	•	Restrict ALLOWED_ORIGINS
-	•	Terminate TLS (HTTPS) at a reverse proxy (nginx/Traefik) in front
-
-⸻
-
-🔐 Security considerations
-	•	MASTER_KEY: Back it up securely (password manager / vault). If lost, encrypted keys are unrecoverable.
-	•	No plaintext key exposure: The server never returns stored API keys.
-	•	Auth vs. rate limiting:
-	•	Missing/invalid admin key → 401
-	•	Over the limit → 429 with Retry-After
-	•	Prod error handling: In ENV=production, clients get clean JSON; full tracebacks stay in server logs.
-
-⸻
-
-🧭 Troubleshooting
-	•	Port already in use: Stop previous server. macOS:
-
-lsof -ti :5001 | xargs kill -9
-
-
-	•	CORS blocked: Set ALLOWED_ORIGINS to match the URL you load the dashboard from.
-	•	Cannot fetch data (401): Ensure requests include X-API-Key equal to your admin key.
-	•	Rate limited (429): The dashboard auto-retries; or respect Retry-After header.
-
-⸻
-
-📂 Project structure
-
-cost-guardian-api/
-├─ app.py               # Flask API & routes
-├─ worker.py            # Background probing loop
-├─ crypto.py            # Fernet encrypt/decrypt helpers
-├─ db.py                # SQLite schema & ops
-├─ calc.py              # Cost calculation
-├─ rate_limit.py        # Token bucket limiter
-├─ metrics.py           # Counters & metrics snapshot
-├─ config.py            # Env-driven configuration
-├─ templates/
-│  └─ dashboard.html    # Dashboard UI
-├─ requirements.txt
-├─ Dockerfile
-├─ docker-compose.yml
-└─ README.md
+See `cost-guardian-api/README.md` for API endpoints, environment variables, and UI screenshots.
 
 
 ⸻

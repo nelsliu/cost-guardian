@@ -47,6 +47,7 @@ def init_startup():
     init_ingest_limit(INGEST_RPM, INGEST_BURST)
     
     # Safe startup logging (no secrets)
+    logging.info("Database path: %s", DB_PATH)
     logging.info("Dashboard auth requirement: %s", "ENFORCED" if ENV == "production" else "DISABLED (dev)")
     logging.info("Rate limiting initialized | Admin RPM=%d | BURST=%d | EXEMPT=%s", 
                  RATE_LIMIT_RPM, RATE_LIMIT_BURST, ",".join(RATE_LIMIT_EXEMPT))
@@ -616,17 +617,27 @@ def ingest_usage():
         else:
             return json_error(500, "Internal server error")
 
+# --- Helpers ---------------------------------------------------------------
+
+def mask_api_key(value: str, head: int = 4, tail: int = 4) -> str:
+    """
+    Mask a secret for logs: 'sk-abc123...xyz789' -> 'sk-a…z789'
+    Never log full secrets. Handles short strings safely.
+    """
+    if not value:
+        return ""
+    s = str(value)
+    if len(s) <= head + tail + 1:
+        return (s[0] + "…" + s[-1]) if len(s) > 2 else "…"
+    return f"{s[:head]}…{s[-tail:]}"
+
 def mask_tracking_token(token: str) -> str:
     """Create a masked version of a tracking token showing first 4 and last 4 characters."""
     if len(token) <= 8:
         return 'tok_••••'
     return f"tok_{token[:4]}…{token[-4:]}"
 
-def mask_ingest_key(key: str) -> str:
-    """Create a masked version of an ingest key for logging."""
-    if len(key) <= 8:
-        return 'key_••••'
-    return f"key_{key[:4]}…{key[-4:]}"
+    # Note: Do not log ingest keys. If masking is needed, use mask_api_key.
 
 # Tracking token management endpoints
 
